@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: azhagi-farm-milk
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    pullRequestPreviewsEnabled: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        value: https://dnmtygrfmibqdxttmvoq.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRubXR5Z3JmbWlicWR4dHRtdm9xIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0MjA0NjgsImV4cCI6MjEwMzk5NjQ2OH0.5xSCSJ4OqFwHexW-IM0faKM0OFMJFmuYB_wzuOA15bQ

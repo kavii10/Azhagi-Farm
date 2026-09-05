@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+venv/
+backend/venv/
+.venv/
+__pycache__/
+*.pyc
+.pnp
+.pnp.js
+
+# Database files
+*.db
+*.sqlite3
+
+# Build Outputs
+dist/
+frontend/dist/
+build/
+*.apk
+*.aab
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Android Build & Cache
+.gradle/
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/app/build/
+frontend/android/local.properties
+frontend/android/.idea/
+frontend/android/app/build/intermediates/
+frontend/android/capacitor-cordova-android-plugins/build/
+
+# Editor & OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

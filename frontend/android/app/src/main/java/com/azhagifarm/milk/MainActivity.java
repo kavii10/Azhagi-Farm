@@ -1,0 +1,5 @@
+package com.azhagifarm.milk;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {}

@@ -1,0 +1,8 @@
+﻿{
+  "appId": "com.azhagifarm.milk",
+  "appName": "Azhagi Farm Milk",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  }
+}
