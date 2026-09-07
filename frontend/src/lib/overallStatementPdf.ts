@@ -2,7 +2,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Customer, MonthlyBill } from '../types';
-import { savePdfCrossPlatform } from './pdfDownloader';
+import { savePdfCrossPlatform, sharePdfCrossPlatform } from './pdfDownloader';
+import { APP_LOGO_BASE64 } from './logoBase64';
 
 export type StatementPaymentStatus = 'PAID' | 'PARTIALLY PAID' | 'PENDING';
 
@@ -146,9 +147,9 @@ export function prepareStatementData(
 }
 
 /**
- * Downloads a clean, professional, multi-page A4 PDF of the Overall Bill Statement
+ * Builds a clean, professional, multi-page A4 PDF of the Overall Bill Statement
  */
-export async function downloadOverallStatementPdf(data: OverallStatementData): Promise<void> {
+export function buildOverallStatementPdfDoc(data: OverallStatementData): jsPDF {
   if (data.rows.length === 0) {
     throw new Error('No bill records found for this month.');
   }
@@ -168,15 +169,22 @@ export async function downloadOverallStatementPdf(data: OverallStatementData): P
   doc.setFillColor(21, 128, 61); // Deep Green #15803d
   doc.rect(0, 0, pageWidth, 28, 'F');
 
+  // Farm Logo
+  try {
+    doc.addImage(APP_LOGO_BASE64, 'PNG', margin, 4, 20, 20);
+  } catch (e) {
+    console.warn('Could not add logo to overall statement PDF:', e);
+  }
+
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text(data.farmName.toUpperCase(), margin, 11);
+  doc.setFontSize(17);
+  doc.text(data.farmName.toUpperCase(), margin + 24, 12);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setTextColor(220, 252, 231); // light green
-  doc.text(data.tagline || 'Fresh from Our Farm to Your Family', margin, 17);
+  doc.text(data.tagline || 'Fresh from Our Farm to Your Family', margin + 24, 18);
 
   // Document Title & Month on Right side of banner
   doc.setFont('helvetica', 'bold');
@@ -359,9 +367,25 @@ export async function downloadOverallStatementPdf(data: OverallStatementData): P
     },
   });
 
-  // Save and download file via cross-platform saver (Web & Mobile Capacitor)
+  return doc;
+}
+
+/**
+ * Downloads the overall bill statement PDF directly to user's Documents / Downloads
+ */
+export async function downloadOverallStatementPdf(data: OverallStatementData): Promise<void> {
+  const doc = buildOverallStatementPdfDoc(data);
   const fileName = `${data.farmName.replace(/\s+/g, '_')}_Overall_Bill_Statement_${data.monthName.replace(/\s+/g, '_')}.pdf`;
   await savePdfCrossPlatform(doc, fileName, `${data.farmName} Overall Bill Statement - ${data.monthName}`);
+}
+
+/**
+ * Shares the overall bill statement PDF file directly via native mobile share sheet (WhatsApp, Drive, Email)
+ */
+export async function shareOverallStatementPdf(data: OverallStatementData): Promise<void> {
+  const doc = buildOverallStatementPdfDoc(data);
+  const fileName = `${data.farmName.replace(/\s+/g, '_')}_Overall_Bill_Statement_${data.monthName.replace(/\s+/g, '_')}.pdf`;
+  await sharePdfCrossPlatform(doc, fileName, `${data.farmName} Overall Bill Statement - ${data.monthName}`);
 }
 
 /**
@@ -523,9 +547,12 @@ export function printOverallStatement(data: OverallStatementData): void {
     </head>
     <body>
       <div class="header">
-        <div>
-          <h1>${data.farmName.toUpperCase()}</h1>
-          <div class="tagline">${data.tagline || 'Fresh from Our Farm to Your Family'}</div>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <img src="${APP_LOGO_BASE64}" alt="${data.farmName}" style="width: 52px; height: 52px; object-fit: contain; border-radius: 10px; border: 1px solid #bbf7d0; background: #fff;" />
+          <div>
+            <h1>${data.farmName.toUpperCase()}</h1>
+            <div class="tagline">${data.tagline || 'Fresh from Our Farm to Your Family'}</div>
+          </div>
         </div>
         <div class="header-right">
           <div class="doc-title">OVERALL BILL STATEMENT</div>

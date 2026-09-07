@@ -10,7 +10,6 @@ import {
   Users,
   Download,
   Printer,
-  Sparkles,
   AlertCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -24,6 +23,7 @@ import { downloadCustomerBillPdf, shareBillViaWhatsApp } from '../lib/pdfGenerat
 import {
   prepareStatementData,
   downloadOverallStatementPdf,
+  shareOverallStatementPdf,
   printOverallStatement,
   shareOverallStatementWhatsApp,
 } from '../lib/overallStatementPdf';
@@ -333,11 +333,18 @@ export default function MonthlyBillsPage() {
           {/* Monthly Summary Cards */}
           <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-xs p-4 sm:p-6 mb-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 pb-3 border-b border-gray-100 dark:border-gray-800">
-              <div className="flex items-center gap-2">
-                <Sparkles size={18} className="text-amber-500" />
-                <h2 className="text-sm sm:text-base font-extrabold text-gray-900 dark:text-white">
-                  Overall Monthly Statement — {monthName}
-                </h2>
+              <div className="flex items-center gap-3">
+                <img
+                  src="/logo.png"
+                  alt="Azhagi Farm"
+                  className="w-10 h-10 object-contain rounded-xl border border-green-200 dark:border-green-800 bg-white p-0.5 shrink-0 shadow-xs"
+                />
+                <div>
+                  <h2 className="text-sm sm:text-base font-extrabold text-gray-900 dark:text-white">
+                    Overall Monthly Statement — {monthName}
+                  </h2>
+                  <p className="text-[11px] text-gray-400 font-medium">Fresh from Our Farm to Your Family</p>
+                </div>
               </div>
 
               {/* Action Buttons for Overall Statement */}
@@ -351,6 +358,23 @@ export default function MonthlyBillsPage() {
                 >
                   <Share2 size={15} />
                   <span>WhatsApp</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await shareOverallStatementPdf(statementData);
+                    } catch (e: any) {
+                      toast.error('Share error: ' + (e?.message || 'Failed'));
+                    }
+                  }}
+                  disabled={!hasRecords || loading}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-all active:scale-95 disabled:opacity-40"
+                  title="Share PDF file directly"
+                >
+                  <FileText size={15} />
+                  <span>Share PDF</span>
                 </button>
 
                 <button

@@ -4,20 +4,19 @@ import { Share } from '@capacitor/share';
 
 /**
  * Robust cross-platform PDF downloader for Web and Mobile (Capacitor Android).
- * On Mobile:
- * 1. Writes base64 PDF to Cache/Documents directory via @capacitor/filesystem
- * 2. Opens native Android Share/Save dialog via @capacitor/share
- * 3. Falls back to HTML5 anchor download
- * On Web:
- * Standard browser file download via doc.save() and blob anchor
+ *
+ * When the user taps "Download PDF":
+ * 1. On Mobile: Writes base64 PDF directly into public Documents directory
+ *    (accessible in the phone's file manager / Downloads).
+ * 2. On Web: Downloads directly to browser Downloads via doc.save() and blob anchor.
+ * 3. Does NOT hijack the download with a Share sheet.
  */
 export async function savePdfCrossPlatform(
   doc: jsPDF,
   fileName: string,
-  title?: string
+  _title?: string
 ): Promise<void> {
   const cleanFileName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
-  const shareTitle = title || cleanFileName.replace('.pdf', '');
 
   // Detect if running inside Capacitor native mobile app
   const isCapacitorNative =
@@ -27,28 +26,45 @@ export async function savePdfCrossPlatform(
 
   if (isCapacitorNative) {
     try {
-      // Get base64 string from jsPDF (remove data URI prefix if present)
       const dataUri = doc.output('datauristring');
       const base64Data = dataUri.split(',')[1];
 
-      // Save file to mobile device cache
-      const savedFile = await Filesystem.writeFile({
-        path: cleanFileName,
-        data: base64Data,
-        directory: Directory.Cache,
-      });
+      // Request storage permission if supported
+      try {
+        await Filesystem.requestPermissions();
+      } catch {
+        // Continue if permissions call not supported
+      }
 
-      // Open native mobile share dialog (allows saving to Downloads, Drive, WhatsApp, etc.)
-      await Share.share({
-        title: shareTitle,
-        text: `${shareTitle} from Azhagi Farm`,
-        url: savedFile.uri,
-        dialogTitle: `Save or Share ${shareTitle}`,
-      });
+      // Write directly to public Documents directory on mobile device
+      try {
+        const savedFile = await Filesystem.writeFile({
+          path: cleanFileName,
+          data: base64Data,
+          directory: Directory.Documents,
+          recursive: true,
+        });
+        console.log('[PDF Download] Saved to Documents folder:', savedFile.uri);
+        return;
+      } catch (docErr) {
+        console.warn('[PDF Download] Write to Documents failed, trying External storage:', docErr);
+      }
 
-      return;
+      // Fallback: Try External Storage or Cache
+      try {
+        const savedFile = await Filesystem.writeFile({
+          path: cleanFileName,
+          data: base64Data,
+          directory: Directory.External,
+          recursive: true,
+        });
+        console.log('[PDF Download] Saved to External storage:', savedFile.uri);
+        return;
+      } catch (extErr) {
+        console.warn('[PDF Download] Write to External failed:', extErr);
+      }
     } catch (mobileErr) {
-      console.warn('[PDF Download] Mobile native share error, falling back to browser download:', mobileErr);
+      console.warn('[PDF Download] Mobile native filesystem error, falling back to browser download:', mobileErr);
     }
   }
 
@@ -69,4 +85,49 @@ export async function savePdfCrossPlatform(
       URL.revokeObjectURL(blobUrl);
     }, 1000);
   }
+}
+
+/**
+ * Dedicated PDF Sharer for Mobile & Web.
+ * Use this when the user explicitly clicks "Share PDF".
+ */
+export async function sharePdfCrossPlatform(
+  doc: jsPDF,
+  fileName: string,
+  title?: string
+): Promise<void> {
+  const cleanFileName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
+  const shareTitle = title || cleanFileName.replace('.pdf', '');
+
+  const isCapacitorNative =
+    typeof (window as any).Capacitor !== 'undefined' &&
+    typeof (window as any).Capacitor.isNativePlatform === 'function' &&
+    (window as any).Capacitor.isNativePlatform();
+
+  if (isCapacitorNative) {
+    try {
+      const dataUri = doc.output('datauristring');
+      const base64Data = dataUri.split(',')[1];
+
+      const savedFile = await Filesystem.writeFile({
+        path: cleanFileName,
+        data: base64Data,
+        directory: Directory.Cache,
+        recursive: true,
+      });
+
+      await Share.share({
+        title: shareTitle,
+        text: `${shareTitle} from Azhagi Farm`,
+        url: savedFile.uri,
+        dialogTitle: `Share ${shareTitle}`,
+      });
+      return;
+    } catch (e) {
+      console.warn('[PDF Share] Native share failed:', e);
+    }
+  }
+
+  // Web fallback: download if share not supported
+  await savePdfCrossPlatform(doc, cleanFileName, title);
 }

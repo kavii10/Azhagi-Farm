@@ -16,7 +16,6 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
-  Smartphone,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
@@ -230,18 +229,6 @@ export default function Layout() {
                   </div>
                 </NavLink>
               ))}
-
-              {/* Direct APK Download button */}
-              <div className="pt-3 px-1">
-                <a
-                  href="/AzhagiFarmMilk.apk"
-                  download="AzhagiFarmMilk.apk"
-                  className="flex items-center justify-center gap-2 w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95"
-                >
-                  <Smartphone size={16} />
-                  <span>Download Android App (.apk)</span>
-                </a>
-              </div>
             </nav>
 
             {/* Drawer Footer with Theme Toggle */}

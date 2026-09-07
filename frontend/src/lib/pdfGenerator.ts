@@ -308,17 +308,24 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<void> 
 
   // Header Banner
   doc.setFillColor(21, 128, 61); // Green #15803d
-  doc.rect(0, 0, pageWidth, 26, 'F');
+  doc.rect(0, 0, pageWidth, 28, 'F');
+
+  // Farm Logo
+  try {
+    doc.addImage(APP_LOGO_BASE64, 'PNG', margin, 4, 20, 20);
+  } catch (e) {
+    console.warn('Could not add logo to customer bill PDF:', e);
+  }
 
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
-  doc.text(farmName.toUpperCase(), margin, 11);
+  doc.text(farmName.toUpperCase(), margin + 24, 12);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(220, 252, 231);
-  doc.text('Fresh from Our Farm to Your Family', margin, 17);
+  doc.text('Fresh from Our Farm to Your Family', margin + 24, 18);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
@@ -333,33 +340,33 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<void> 
   // Customer & Bill Info Box
   doc.setFillColor(248, 250, 252);
   doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(margin, 30, pageWidth - margin * 2, 22, 2, 2, 'FD');
+  doc.roundedRect(margin, 32, pageWidth - margin * 2, 22, 2, 2, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.setTextColor(15, 23, 42);
-  doc.text(`Customer: ${customer.name}`, margin + 4, 37);
+  doc.text(`Customer: ${customer.name}`, margin + 4, 39);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(71, 85, 105);
   const phoneText = customer.phone ? `Phone: ${customer.phone}` : 'Phone: —';
   const batchText = `Batch: ${customer.batch === 'both' ? 'Morning & Evening' : customer.batch === 'evening' ? 'Evening' : 'Morning'}`;
-  doc.text(`${phoneText}  •  ${batchText}`, margin + 4, 43);
+  doc.text(`${phoneText}  •  ${batchText}`, margin + 4, 45);
   if (customer.address) {
-    doc.text(`Address: ${customer.address}`, margin + 4, 48);
+    doc.text(`Address: ${customer.address}`, margin + 4, 50);
   }
 
   // Right side of info box: Rate & Date
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(22, 101, 52);
-  doc.text(`Rate: Rs. ${rate} / Litre`, pageWidth - margin - 4, 37, { align: 'right' });
+  doc.text(`Rate: Rs. ${rate} / Litre`, pageWidth - margin - 4, 39, { align: 'right' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, pageWidth - margin - 4, 43, { align: 'right' });
+  doc.text(`Generated: ${format(new Date(), 'dd MMM yyyy')}`, pageWidth - margin - 4, 45, { align: 'right' });
 
   // Daily entries map
   const morningMap = new Map<string, MilkEntry>();
@@ -404,7 +411,7 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<void> 
     head: [['Date', 'Morning Batch', 'Evening Batch', 'Daily Total']],
     body: tableBody,
     foot: [['TOTAL DELIVERED', '—', '—', `${finalLitres} Litres`]],
-    startY: 56,
+    startY: 58,
     margin: { left: margin, right: margin, bottom: 42, top: 18 },
     showHead: 'everyPage',
     showFoot: 'lastPage',
@@ -440,50 +447,52 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<void> 
       fillColor: [248, 250, 252],
     },
     didDrawPage: (hookData) => {
-      // Draw bill calculation summary box on last page
+      // Page footer only
       const totalPages = (doc.internal as any).getNumberOfPages();
-      if (hookData.pageNumber === totalPages) {
-        const finalY = (doc as any).lastAutoTable.finalY + 4;
-        if (finalY + 30 < pageHeight) {
-          // Summary card
-          doc.setFillColor(248, 250, 252);
-          doc.setDrawColor(226, 232, 240);
-          doc.roundedRect(margin, finalY, pageWidth - margin * 2, 26, 2, 2, 'FD');
-
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8.5);
-          doc.setTextColor(100, 116, 139);
-          doc.text(`Total Litres: ${finalLitres} L  @  Rs. ${rate}/L`, margin + 4, finalY + 7);
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(15, 23, 42);
-          doc.text(`Total Bill: Rs. ${totalAmount.toLocaleString('en-IN')}`, margin + 4, finalY + 14);
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9.5);
-          doc.setTextColor(22, 101, 52);
-          doc.text(`Amount Paid: Rs. ${paidAmount.toLocaleString('en-IN')}`, margin + 4, finalY + 21);
-
-          // Right side: Pending Balance and Status
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(13);
-          doc.setTextColor(balance > 0 ? 185 : 22, balance > 0 ? 28 : 101, balance > 0 ? 28 : 52);
-          doc.text(`Pending: Rs. ${balance.toLocaleString('en-IN')}`, pageWidth - margin - 4, finalY + 11, { align: 'right' });
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(9);
-          doc.text(`Status: ${statusLabel}`, pageWidth - margin - 4, finalY + 19, { align: 'right' });
-        }
-      }
-
-      // Page footer
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
       doc.text(`Page ${hookData.pageNumber} of ${totalPages} • ${farmName} - Fresh from Our Farm to Your Family`, margin, pageHeight - 6);
     },
   });
+
+  // Draw bill calculation summary box after autoTable has completed execution
+  const lastTable = (doc as any).lastAutoTable;
+  let finalY = lastTable && typeof lastTable.finalY === 'number' ? lastTable.finalY + 4 : 210;
+  if (finalY + 30 > pageHeight - 12) {
+    doc.addPage();
+    finalY = 20;
+  }
+
+  // Summary card
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(margin, finalY, pageWidth - margin * 2, 26, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Total Litres: ${finalLitres} L  @  Rs. ${rate}/L`, margin + 4, finalY + 7);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Total Bill: Rs. ${totalAmount.toLocaleString('en-IN')}`, margin + 4, finalY + 14);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(22, 101, 52);
+  doc.text(`Amount Paid: Rs. ${paidAmount.toLocaleString('en-IN')}`, margin + 4, finalY + 21);
+
+  // Right side: Pending Balance and Status
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(balance > 0 ? 185 : 22, balance > 0 ? 28 : 101, balance > 0 ? 28 : 52);
+  doc.text(`Pending: Rs. ${balance.toLocaleString('en-IN')}`, pageWidth - margin - 4, finalY + 11, { align: 'right' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.text(`Status: ${statusLabel}`, pageWidth - margin - 4, finalY + 19, { align: 'right' });
 
   const fileName = `${customer.name.replace(/\s+/g, '_')}_Bill_${monthName.replace(/\s+/g, '_')}.pdf`;
   await savePdfCrossPlatform(doc, fileName, `${customer.name} Milk Bill - ${monthName}`);
