@@ -8,6 +8,7 @@ import { TrendingUp, Milk, IndianRupee, Users, ArrowUpRight, ArrowDownRight, Bar
 import { getAnalyticsData, type MonthlyAnalytics } from "../lib/api";
 import { getAllMonthlyYield } from "../lib/cattleStore";
 import { formatCurrency } from "../types";
+import clsx from "clsx";
 
 const COLORS = {
   green: "#22c55e",
@@ -379,45 +380,120 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      {/* ─── Profit Estimate ─── */}
-      <div className="bg-white rounded-3xl border border-gray-100 shadow-xs p-5">
-        <h2 className="text-base font-bold text-gray-900 mb-4">Monthly Summary Table</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left pb-2 text-gray-500 font-semibold">Month</th>
-                <th className="text-right pb-2 text-gray-500 font-semibold">Milk (L)</th>
-                <th className="text-right pb-2 text-gray-500 font-semibold">Billed</th>
-                <th className="text-right pb-2 text-gray-500 font-semibold">Collected</th>
-                <th className="text-right pb-2 text-gray-500 font-semibold">Pending</th>
-                <th className="text-right pb-2 text-gray-500 font-semibold">Customers</th>
-              </tr>
-            </thead>
-            <tbody>
-              {monthly.map((m) => (
-                <tr key={m.month} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="py-2 font-semibold text-gray-800">{m.label} {m.year}</td>
-                  <td className="py-2 text-right text-gray-700">{m.totalLitres > 0 ? m.totalLitres.toFixed(2) : "—"}</td>
-                  <td className="py-2 text-right text-gray-700">{m.totalBilled > 0 ? formatCurrency(m.totalBilled) : "—"}</td>
-                  <td className="py-2 text-right text-green-700 font-semibold">{m.totalCollected > 0 ? formatCurrency(m.totalCollected) : "—"}</td>
-                  <td className={`py-2 text-right font-semibold ${m.totalPending > 0 ? "text-amber-600" : "text-gray-400"}`}>
-                    {m.totalPending > 0 ? formatCurrency(m.totalPending) : "—"}
-                  </td>
-                  <td className="py-2 text-right text-gray-600">{m.customerCount > 0 ? m.customerCount : "—"}</td>
+      {/* ─── Monthly Summary Table ─── */}
+      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-xs p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 className="text-base sm:text-lg font-extrabold text-gray-900 dark:text-white flex items-center gap-2">
+              <span>Monthly Summary Table</span>
+              <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-md">
+                {selectedYear}
+              </span>
+            </h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              Swipe left/right and up/down to view all monthly details
+            </p>
+          </div>
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-400 dark:text-gray-500 bg-gray-50 dark:bg-gray-800/80 px-2.5 py-1 rounded-full w-fit">
+            <span>↔ Move right &amp; bottom ↕</span>
+          </div>
+        </div>
+
+        {/* Scrollable Container with sticky headers & sticky first column */}
+        <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800 overflow-hidden shadow-xs">
+          <div className="overflow-x-auto overflow-y-auto max-h-[460px] scrollbar-thin overscroll-contain">
+            <table className="min-w-[700px] w-full text-xs border-collapse">
+              <thead className="sticky top-0 z-20 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <tr>
+                  <th className="sticky left-0 z-30 bg-gray-50 dark:bg-gray-800 text-left py-3 px-4 text-gray-600 dark:text-gray-300 font-extrabold min-w-[130px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)]">
+                    Month
+                  </th>
+                  <th className="text-right py-3 px-3.5 text-gray-600 dark:text-gray-300 font-extrabold min-w-[110px]">
+                    Milk (L)
+                  </th>
+                  <th className="text-right py-3 px-3.5 text-gray-600 dark:text-gray-300 font-extrabold min-w-[120px]">
+                    Billed
+                  </th>
+                  <th className="text-right py-3 px-3.5 text-gray-600 dark:text-gray-300 font-extrabold min-w-[120px]">
+                    Collected
+                  </th>
+                  <th className="text-right py-3 px-3.5 text-gray-600 dark:text-gray-300 font-extrabold min-w-[120px]">
+                    Pending
+                  </th>
+                  <th className="text-right py-3 pr-4 pl-3.5 text-gray-600 dark:text-gray-300 font-extrabold min-w-[100px]">
+                    Customers
+                  </th>
                 </tr>
-              ))}
-              {/* Totals row */}
-              <tr className="border-t-2 border-gray-200 font-bold text-gray-900">
-                <td className="pt-3">TOTAL</td>
-                <td className="pt-3 text-right">{ytdLitres.toFixed(2)} L</td>
-                <td className="pt-3 text-right">{formatCurrency(monthly.reduce((s, m) => s + m.totalBilled, 0))}</td>
-                <td className="pt-3 text-right text-green-700">{formatCurrency(ytdRevenue)}</td>
-                <td className="pt-3 text-right text-amber-600">{totalOutstanding > 0 ? formatCurrency(totalOutstanding) : "—"}</td>
-                <td className="pt-3 text-right">—</td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80">
+                {monthly.map((m) => {
+                  const hasData = m.totalLitres > 0 || m.totalBilled > 0 || m.totalCollected > 0;
+                  return (
+                    <tr
+                      key={m.month}
+                      className={clsx(
+                        'transition-colors group',
+                        hasData
+                          ? 'bg-white dark:bg-gray-900 hover:bg-green-50/40 dark:hover:bg-green-950/20'
+                          : 'bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                      )}
+                    >
+                      <td className="sticky left-0 z-10 bg-white dark:bg-gray-900 group-hover:bg-gray-50 dark:group-hover:bg-gray-800/90 py-3 px-4 font-bold text-gray-900 dark:text-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)] whitespace-nowrap">
+                        <span className="flex items-center gap-1.5">
+                          {hasData && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block shrink-0" />}
+                          <span>{m.label} {m.year}</span>
+                        </span>
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-medium text-gray-700 dark:text-gray-300 tabular-nums whitespace-nowrap">
+                        {m.totalLitres > 0 ? `${m.totalLitres.toFixed(2)} L` : '—'}
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-semibold text-gray-800 dark:text-gray-200 tabular-nums whitespace-nowrap">
+                        {m.totalBilled > 0 ? formatCurrency(m.totalBilled) : '—'}
+                      </td>
+                      <td className="py-3 px-3.5 text-right font-bold text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">
+                        {m.totalCollected > 0 ? formatCurrency(m.totalCollected) : '—'}
+                      </td>
+                      <td
+                        className={clsx(
+                          'py-3 px-3.5 text-right font-bold tabular-nums whitespace-nowrap',
+                          m.totalPending > 0
+                            ? 'text-amber-500 dark:text-amber-400'
+                            : 'text-gray-400 dark:text-gray-600'
+                        )}
+                      >
+                        {m.totalPending > 0 ? formatCurrency(m.totalPending) : '—'}
+                      </td>
+                      <td className="py-3 pr-4 pl-3.5 text-right font-medium text-gray-600 dark:text-gray-400 tabular-nums whitespace-nowrap">
+                        {m.customerCount > 0 ? m.customerCount : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="sticky bottom-0 z-20 bg-gray-100 dark:bg-gray-800 border-t-2 border-gray-300 dark:border-gray-700 font-extrabold shadow-sm">
+                <tr>
+                  <td className="sticky left-0 z-30 bg-gray-100 dark:bg-gray-800 py-3.5 px-4 text-left font-black text-gray-900 dark:text-white shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] dark:shadow-[2px_0_5px_-2px_rgba(0,0,0,0.3)] whitespace-nowrap">
+                    TOTAL
+                  </td>
+                  <td className="py-3.5 px-3.5 text-right text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
+                    {ytdLitres.toFixed(2)} L
+                  </td>
+                  <td className="py-3.5 px-3.5 text-right text-gray-900 dark:text-white tabular-nums whitespace-nowrap">
+                    {formatCurrency(monthly.reduce((s, m) => s + m.totalBilled, 0))}
+                  </td>
+                  <td className="py-3.5 px-3.5 text-right text-emerald-600 dark:text-emerald-400 tabular-nums whitespace-nowrap">
+                    {formatCurrency(ytdRevenue)}
+                  </td>
+                  <td className="py-3.5 px-3.5 text-right text-amber-500 dark:text-amber-400 tabular-nums whitespace-nowrap">
+                    {totalOutstanding > 0 ? formatCurrency(totalOutstanding) : '—'}
+                  </td>
+                  <td className="py-3 pr-4 pl-3.5 text-right text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap">
+                    —
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
       </div>
 
