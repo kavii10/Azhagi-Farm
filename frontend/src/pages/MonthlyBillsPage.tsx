@@ -12,6 +12,7 @@ import {
   Printer,
   AlertCircle,
   RefreshCw,
+  IndianRupee,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
@@ -671,11 +672,7 @@ export default function MonthlyBillsPage() {
               {filtered.map((bill) => (
                 <div
                   key={bill.id}
-                  onClick={() => {
-                    setPaymentBill(bill);
-                    setPaymentAmount(bill.balance_amount > 0 ? bill.balance_amount.toString() : '');
-                  }}
-                  className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs p-4 hover:border-green-300 dark:hover:border-green-700 transition-all cursor-pointer flex flex-col justify-between"
+                  className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs p-4 flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-2">
@@ -715,7 +712,19 @@ export default function MonthlyBillsPage() {
                   </div>
 
                   {/* Card Action buttons */}
-                  <div className="flex items-center justify-end gap-2 mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800">
+                  <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentBill(bill);
+                        setPaymentAmount(bill.balance_amount > 0 ? bill.balance_amount.toString() : '');
+                      }}
+                      className="flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 py-1.5 px-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors active:scale-95 shadow-xs"
+                      title="Add Payment"
+                    >
+                      <IndianRupee size={13} />
+                      <span>Add Payment</span>
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => handleDownloadIndividualPdf(e, bill)}
