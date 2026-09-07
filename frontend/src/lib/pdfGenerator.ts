@@ -4,7 +4,7 @@ import { format, getDaysInMonth } from 'date-fns';
 import { APP_LOGO_BASE64 } from './logoBase64';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { savePdfCrossPlatform } from './pdfDownloader';
+import { savePdfCrossPlatform, type PdfDownloadResult } from './pdfDownloader';
 
 export interface BillPdfData {
   farmName: string;
@@ -290,7 +290,7 @@ export function generateBillHtml(data: BillPdfData): string {
  * Downloads a clean, professional individual customer bill PDF (A4 format)
  * Works on desktop browsers and mobile (Capacitor Android).
  */
-export async function downloadCustomerBillPdf(data: BillPdfData): Promise<void> {
+export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDownloadResult> {
   const { farmName, customer, bill, entries, year, month, rate } = data;
   const monthDate = new Date(year, month - 1, 1);
   const monthName = format(monthDate, 'MMMM yyyy');
@@ -494,8 +494,11 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<void> 
   doc.setFontSize(9);
   doc.text(`Status: ${statusLabel}`, pageWidth - margin - 4, finalY + 19, { align: 'right' });
 
-  const fileName = `${customer.name.replace(/\s+/g, '_')}_Bill_${monthName.replace(/\s+/g, '_')}.pdf`;
-  await savePdfCrossPlatform(doc, fileName, `${customer.name} Milk Bill - ${monthName}`);
+  // Format filename strictly as username_month_bill.pdf
+  const cleanCustomer = customer.name.trim().replace(/\s+/g, '_');
+  const cleanMonth = format(monthDate, 'MMMM_yyyy');
+  const fileName = `${cleanCustomer}_${cleanMonth}_bill.pdf`;
+  return await savePdfCrossPlatform(doc, fileName, `${customer.name} Milk Bill - ${monthName}`);
 }
 
 /**

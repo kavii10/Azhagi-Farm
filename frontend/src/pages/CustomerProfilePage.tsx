@@ -544,7 +544,7 @@ export default function CustomerProfilePage() {
           <button
             onClick={async () => {
               try {
-                await downloadCustomerBillPdf({
+                const res = await downloadCustomerBillPdf({
                   farmName: settings?.farm_name || 'Azhagi Farm',
                   customer,
                   bill: bill || undefined,
@@ -553,7 +553,7 @@ export default function CustomerProfilePage() {
                   month: viewMonth,
                   rate,
                 });
-                toast.success(`✓ Downloaded ${customer.name}'s Bill`);
+                toast.success(`✓ Saved to ${res?.folder || 'Downloads'}: ${res?.fileName || 'Bill.pdf'}`, { duration: 4000 });
               } catch (err: any) {
                 toast.error('Failed to download PDF: ' + err.message);
               }

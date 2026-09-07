@@ -11,11 +11,17 @@ import { Share } from '@capacitor/share';
  * 2. On Web: Downloads directly to browser Downloads via doc.save() and blob anchor.
  * 3. Does NOT hijack the download with a Share sheet.
  */
+export interface PdfDownloadResult {
+  folder: string;
+  fileName: string;
+  uri?: string;
+}
+
 export async function savePdfCrossPlatform(
   doc: jsPDF,
   fileName: string,
   _title?: string
-): Promise<void> {
+): Promise<PdfDownloadResult> {
   const cleanFileName = fileName.endsWith('.pdf') ? fileName : `${fileName}.pdf`;
 
   // Detect if running inside Capacitor native mobile app
@@ -36,7 +42,21 @@ export async function savePdfCrossPlatform(
         // Continue if permissions call not supported
       }
 
-      // Write directly to public Documents directory on mobile device
+      // 1. Try writing directly to Download folder on Android public storage
+      try {
+        const savedFile = await Filesystem.writeFile({
+          path: `Download/${cleanFileName}`,
+          data: base64Data,
+          directory: Directory.ExternalStorage,
+          recursive: true,
+        });
+        console.log('[PDF Download] Saved to Downloads folder:', savedFile.uri);
+        return { folder: 'Downloads', fileName: cleanFileName, uri: savedFile.uri };
+      } catch (dlErr) {
+        console.warn('[PDF Download] Write to Download failed, trying Documents:', dlErr);
+      }
+
+      // 2. Fallback: Write directly to Documents directory on mobile device
       try {
         const savedFile = await Filesystem.writeFile({
           path: cleanFileName,
@@ -45,12 +65,12 @@ export async function savePdfCrossPlatform(
           recursive: true,
         });
         console.log('[PDF Download] Saved to Documents folder:', savedFile.uri);
-        return;
+        return { folder: 'Documents', fileName: cleanFileName, uri: savedFile.uri };
       } catch (docErr) {
         console.warn('[PDF Download] Write to Documents failed, trying External storage:', docErr);
       }
 
-      // Fallback: Try External Storage or Cache
+      // 3. Fallback: Try External Storage root or Cache
       try {
         const savedFile = await Filesystem.writeFile({
           path: cleanFileName,
@@ -59,7 +79,7 @@ export async function savePdfCrossPlatform(
           recursive: true,
         });
         console.log('[PDF Download] Saved to External storage:', savedFile.uri);
-        return;
+        return { folder: 'Files', fileName: cleanFileName, uri: savedFile.uri };
       } catch (extErr) {
         console.warn('[PDF Download] Write to External failed:', extErr);
       }
@@ -71,6 +91,7 @@ export async function savePdfCrossPlatform(
   // Standard Web / Browser download
   try {
     doc.save(cleanFileName);
+    return { folder: 'Downloads', fileName: cleanFileName };
   } catch (saveErr) {
     console.warn('[PDF Download] doc.save failed, using blob fallback:', saveErr);
     const blob = doc.output('blob');
@@ -84,6 +105,7 @@ export async function savePdfCrossPlatform(
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
     }, 1000);
+    return { folder: 'Downloads', fileName: cleanFileName };
   }
 }
 

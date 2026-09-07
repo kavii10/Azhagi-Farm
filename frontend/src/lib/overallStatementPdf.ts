@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Customer, MonthlyBill } from '../types';
-import { savePdfCrossPlatform, sharePdfCrossPlatform } from './pdfDownloader';
+import { savePdfCrossPlatform, sharePdfCrossPlatform, type PdfDownloadResult } from './pdfDownloader';
 import { APP_LOGO_BASE64 } from './logoBase64';
 
 export type StatementPaymentStatus = 'PAID' | 'PARTIALLY PAID' | 'PENDING';
@@ -373,10 +373,12 @@ export function buildOverallStatementPdfDoc(data: OverallStatementData): jsPDF {
 /**
  * Downloads the overall bill statement PDF directly to user's Documents / Downloads
  */
-export async function downloadOverallStatementPdf(data: OverallStatementData): Promise<void> {
+export async function downloadOverallStatementPdf(data: OverallStatementData): Promise<PdfDownloadResult> {
   const doc = buildOverallStatementPdfDoc(data);
-  const fileName = `${data.farmName.replace(/\s+/g, '_')}_Overall_Bill_Statement_${data.monthName.replace(/\s+/g, '_')}.pdf`;
-  await savePdfCrossPlatform(doc, fileName, `${data.farmName} Overall Bill Statement - ${data.monthName}`);
+  const cleanFarm = data.farmName.trim().replace(/\s+/g, '_');
+  const cleanMonth = data.monthName.trim().replace(/\s+/g, '_');
+  const fileName = `${cleanFarm}_${cleanMonth}_Overall_Statement.pdf`;
+  return await savePdfCrossPlatform(doc, fileName, `${data.farmName} Overall Bill Statement - ${data.monthName}`);
 }
 
 /**

@@ -117,7 +117,7 @@ export default function MonthlyBillsPage() {
     setDownloadingBillId(bill.id);
     try {
       const entries = await getMilkEntriesForCustomer(bill.customer_id, year, month);
-      await downloadCustomerBillPdf({
+      const res = await downloadCustomerBillPdf({
         farmName,
         customer: bill.customer,
         bill,
@@ -126,7 +126,7 @@ export default function MonthlyBillsPage() {
         month,
         rate: bill.rate_per_litre,
       });
-      toast.success(`✓ Downloaded ${bill.customer.name}'s Bill`);
+      toast.success(`✓ Saved to ${res?.folder || 'Downloads'}: ${res?.fileName || 'Bill.pdf'}`, { duration: 4000 });
     } catch (err: any) {
       toast.error('Failed to download PDF: ' + err.message);
     } finally {
@@ -206,8 +206,8 @@ export default function MonthlyBillsPage() {
     }
     setDownloadingOverallPdf(true);
     try {
-      await downloadOverallStatementPdf(statementData);
-      toast.success(`✓ Downloaded ${statementData.monthName} Overall Statement`);
+      const res = await downloadOverallStatementPdf(statementData);
+      toast.success(`✓ Saved to ${res?.folder || 'Downloads'}: ${res?.fileName || 'Overall_Statement.pdf'}`, { duration: 4000 });
     } catch (err: any) {
       toast.error('Failed to generate PDF: ' + err.message);
     } finally {
