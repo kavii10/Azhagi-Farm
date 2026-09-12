@@ -48,13 +48,11 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       <div className="relative z-10 flex flex-col items-center text-center max-w-sm px-4">
         {/* Official Farm Logo */}
         <div className="relative mb-6">
-          <div className="bg-white p-3 sm:p-4 rounded-3xl shadow-xl border border-green-100 ring-4 ring-green-50">
-            <img
-              src="/logo.png"
-              alt="Azhagi Farm Milk"
-              className="w-32 h-32 sm:w-36 sm:h-36 object-contain rounded-2xl"
-            />
-          </div>
+          <img
+            src="/logo.png"
+            alt="Azhagi Farm Milk"
+            className="w-72 h-72 sm:w-80 sm:h-80 object-contain drop-shadow-xl"
+          />
         </div>
 
         {/* Farm Name */}
