@@ -30,27 +30,26 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-700 ease-in-out ${
         fadeOut ? 'opacity-0 pointer-events-none' : fadeIn ? 'opacity-100' : 'opacity-0'
       }`}
-      // Inline style guarantees white regardless of dark-mode CSS overrides
       style={{ backgroundColor: '#ffffff' }}
     >
       {/* Center Branding */}
-      <div className="flex flex-col items-center text-center px-6">
+      <div className="flex flex-col items-center text-center px-6 gap-3">
 
-        {/* Logo: transparent PNG blends perfectly on white background */}
+        {/* Logo — transparent PNG, blends with white bg seamlessly */}
         <img
           src="/logo.png"
           alt="Azhagi Farm Milk"
-          className="w-80 h-80 sm:w-96 sm:h-96 object-contain mb-4"
-          style={{ filter: 'drop-shadow(0 4px 16px rgba(0,0,0,0.15))' }}
+          className="w-64 h-64 sm:w-72 sm:h-72 object-contain"
+          style={{ filter: 'drop-shadow(0 6px 18px rgba(0,0,0,0.18))' }}
         />
 
         {/* Farm Name */}
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 mb-2">
+        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900">
           Azhagi Farm
         </h1>
 
         {/* Tagline */}
-        <p className="text-sm sm:text-base font-semibold text-green-700 italic tracking-wide mb-5">
+        <p className="text-sm sm:text-base font-semibold text-green-700 italic tracking-wide">
           "{TAGLINE}"
         </p>
 
@@ -61,7 +60,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         </div>
       </div>
 
-      {/* Progress bar — absolute at bottom, doesn't shift centering */}
+      {/* Progress bar — absolute at bottom */}
       <div className="absolute bottom-8 w-full max-w-xs flex flex-col items-center px-6">
         <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mb-3">
           <div
