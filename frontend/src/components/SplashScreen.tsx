@@ -16,15 +16,8 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       setFadeIn(true);
       setProgress(100);
     }, 100);
-
-    const outTimer = setTimeout(() => {
-      setFadeOut(true);
-    }, 4300);
-
-    const completeTimer = setTimeout(() => {
-      onComplete();
-    }, 5000);
-
+    const outTimer = setTimeout(() => setFadeOut(true), 4300);
+    const completeTimer = setTimeout(() => onComplete(), 5000);
     return () => {
       clearTimeout(inTimer);
       clearTimeout(outTimer);
@@ -34,17 +27,21 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-700 ease-in-out ${
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-700 ease-in-out ${
         fadeOut ? 'opacity-0 pointer-events-none' : fadeIn ? 'opacity-100' : 'opacity-0'
       }`}
+      // Inline style guarantees white regardless of dark-mode CSS overrides
+      style={{ backgroundColor: '#ffffff' }}
     >
-      {/* Center Branding — truly centered */}
+      {/* Center Branding */}
       <div className="flex flex-col items-center text-center px-6">
-        {/* Logo — bigger and properly centered */}
+
+        {/* Logo: transparent PNG blends perfectly on white background */}
         <img
           src="/logo.png"
           alt="Azhagi Farm Milk"
-          className="w-80 h-80 sm:w-96 sm:h-96 object-contain drop-shadow-2xl mb-4"
+          className="w-80 h-80 sm:w-96 sm:h-96 object-contain mb-4"
+          style={{ filter: 'drop-shadow(0 4px 16px rgba(0,0,0,0.15))' }}
         />
 
         {/* Farm Name */}
@@ -64,7 +61,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         </div>
       </div>
 
-      {/* Progress bar — absolute at bottom so it doesn't shift centering */}
+      {/* Progress bar — absolute at bottom, doesn't shift centering */}
       <div className="absolute bottom-8 w-full max-w-xs flex flex-col items-center px-6">
         <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mb-3">
           <div
