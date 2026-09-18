@@ -199,11 +199,17 @@ export function cleanOldLocalData(daysToKeep = 30): { freedEntries: number; free
 // ---- Settings ----
 export function getLocalSettings(): AppSettings {
   const current = getJson<AppSettings | null>(STORAGE_KEYS.SETTINGS, null);
-  if (current) return current;
+  if (current) {
+    if (!current.farm_name || current.farm_name === 'Azhagi Farm' || current.farm_name === 'Azhagi Farm Milk') {
+      current.farm_name = 'AZHAGI NATURA';
+      setJson(STORAGE_KEYS.SETTINGS, current);
+    }
+    return current;
+  }
   const initial: AppSettings = {
     id: generateUUID(),
     default_rate: 60.0,
-    farm_name: 'Azhagi Farm',
+    farm_name: 'AZHAGI NATURA',
     currency: 'INR',
     owner_id: undefined as any,
     created_at: new Date().toISOString(),

@@ -45,7 +45,7 @@ export default function OverallBillStatementPage() {
   const [generating, setGenerating] = useState(false);
   const [pdfGenerating, setPdfGenerating] = useState(false);
 
-  const farmName = settings?.farm_name || 'Azhagi Farm';
+  const farmName = settings?.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA';
   const defaultRate = settings?.default_rate || 60;
   const monthDate = new Date(year, month - 1, 1);
   const monthName = format(monthDate, 'MMMM yyyy');

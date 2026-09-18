@@ -74,16 +74,13 @@ export default function Layout() {
             >
               <img
                 src="/logo.png"
-                alt="Azhagi Farm Milk"
+                alt="AZHAGI NATURA"
                 className="w-10 h-10 object-contain rounded-xl shadow-xs border border-green-100 dark:border-green-900/60 group-hover:scale-105 transition-transform shrink-0"
               />
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-green-700 dark:text-green-400 text-lg md:text-xl leading-tight">
-                    Azhagi Farm
-                  </span>
-                  <span className="hidden sm:inline-block text-[10px] bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300 font-bold px-2 py-0.5 rounded-full border border-green-200 dark:border-green-800">
-                    Milk
+                    AZHAGI NATURA
                   </span>
                 </div>
                 <span className="hidden md:block text-[11px] text-gray-400 dark:text-gray-400 leading-tight">
@@ -184,12 +181,12 @@ export default function Layout() {
               <div className="flex items-center gap-3">
                 <img
                   src="/logo.png"
-                  alt="Azhagi Farm Milk"
+                  alt="AZHAGI NATURA"
                   className="w-11 h-11 object-contain rounded-xl shadow-xs border border-green-100 dark:border-green-900"
                 />
                 <div>
                   <div className="font-bold text-green-700 dark:text-green-400 text-base leading-tight">
-                    Azhagi Farm
+                    AZHAGI NATURA
                   </div>
                   <div className="text-[10px] text-gray-400 italic line-clamp-1">{TAGLINE}</div>
                 </div>

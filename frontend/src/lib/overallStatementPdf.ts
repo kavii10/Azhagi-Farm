@@ -81,7 +81,7 @@ export function prepareStatementData(
   bills: (MonthlyBill & { customer: Customer })[],
   year: number,
   month: number,
-  farmName = 'Azhagi Farm'
+  farmName = 'AZHAGI NATURA'
 ): OverallStatementData {
   const monthDate = new Date(year, month - 1, 1);
   const monthName = format(monthDate, 'MMMM yyyy');
@@ -179,7 +179,8 @@ export function buildOverallStatementPdfDoc(data: OverallStatementData): jsPDF {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
-  doc.text(data.farmName.toUpperCase(), margin + 24, 12);
+  const resolvedFarmName = (!data.farmName || data.farmName === 'Azhagi Farm' || data.farmName === 'Azhagi Farm Milk') ? 'AZHAGI NATURA' : data.farmName;
+  doc.text(resolvedFarmName.toUpperCase(), margin + 24, 12);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);

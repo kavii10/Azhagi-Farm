@@ -132,13 +132,13 @@ export default function DashboardPage() {
         <div className="flex items-center gap-4">
           <img
             src="/logo.png"
-            alt="Azhagi Farm Milk"
+            alt="AZHAGI NATURA"
             className="w-16 h-16 sm:w-20 sm:h-20 object-contain rounded-2xl shadow-xs shrink-0 border border-green-100"
           />
           <div className="min-w-0">
             <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider">{greeting} 👋</p>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight">
-              {settings?.farm_name || 'Azhagi Farm'}
+              {settings?.farm_name && settings.farm_name !== 'Azhagi Farm' ? settings.farm_name : 'AZHAGI NATURA'}
             </h1>
             <p className="text-green-600 text-xs sm:text-sm font-medium italic mt-0.5">{TAGLINE}</p>
           </div>

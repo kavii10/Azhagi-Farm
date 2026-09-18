@@ -1,5 +1,5 @@
 import type { Customer, MonthlyBill, MilkEntry } from '../types';
-import { formatQuantity, formatCurrency } from '../types';
+import { formatCurrency } from '../types';
 import { format, getDaysInMonth } from 'date-fns';
 import { APP_LOGO_BASE64 } from './logoBase64';
 import jsPDF from 'jspdf';
@@ -14,6 +14,43 @@ export interface BillPdfData {
   year: number;
   month: number;
   rate: number;
+}
+
+/**
+ * Formats milk quantity for bills using natural human-known milk symbols:
+ * 0.5 -> 1/2 L, 0.25 -> 1/4 L, 0.75 -> 3/4 L, 1.5 -> 1 1/2 L, 1.0 -> 1 L
+ */
+export function formatBillQuantity(litres: number): string {
+  if (!litres || litres <= 0) return '—';
+  const whole = Math.floor(litres);
+  const frac = Math.round((litres - whole) * 1000) / 1000;
+
+  let fracText = '';
+  if (Math.abs(frac - 0.25) < 0.01) {
+    fracText = '1/4';
+  } else if (Math.abs(frac - 0.5) < 0.01) {
+    fracText = '1/2';
+  } else if (Math.abs(frac - 0.75) < 0.01) {
+    fracText = '3/4';
+  } else if (frac > 0) {
+    fracText = parseFloat(frac.toFixed(2)).toString().replace(/^0/, '');
+  }
+
+  if (whole > 0 && fracText) {
+    return `${whole} ${fracText} L`;
+  } else if (whole > 0) {
+    return `${whole} L`;
+  } else if (fracText) {
+    return `${fracText} L`;
+  }
+  return `${litres} L`;
+}
+
+export function resolveFarmName(farmName?: string): string {
+  if (!farmName || farmName.trim() === '' || farmName === 'Azhagi Farm' || farmName === 'Azhagi Farm Milk') {
+    return 'AZHAGI NATURA';
+  }
+  return farmName.trim();
 }
 
 export function generateBillHtml(data: BillPdfData): string {
@@ -47,9 +84,9 @@ export function generateBillHtml(data: BillPdfData): string {
     const dayTotal = mQty + eQty;
     totalLitres += dayTotal;
 
-    const mDisplay = !mEntry ? '—' : mEntry.status === 'no_milk' ? 'No Milk' : formatQuantity(mEntry.quantity_litre || 0);
-    const eDisplay = !eEntry ? '—' : eEntry.status === 'no_milk' ? 'No Milk' : formatQuantity(eEntry.quantity_litre || 0);
-    const dayTotalDisplay = dayTotal > 0 ? `${dayTotal} L` : '—';
+    const mDisplay = !mEntry ? '—' : mEntry.status === 'no_milk' ? 'No Milk' : formatBillQuantity(mEntry.quantity_litre || 0);
+    const eDisplay = !eEntry ? '—' : eEntry.status === 'no_milk' ? 'No Milk' : formatBillQuantity(eEntry.quantity_litre || 0);
+    const dayTotalDisplay = dayTotal > 0 ? formatBillQuantity(dayTotal) : '—';
 
     // Only render days up to today if viewing current month, or all days if past month
     tableRows.push(`
@@ -69,6 +106,7 @@ export function generateBillHtml(data: BillPdfData): string {
   const status = bill ? bill.status.toUpperCase() : balance <= 0 ? 'PAID' : 'PENDING';
 
   const statusColor = status === 'PAID' ? '#16a34a' : status === 'PARTIAL' ? '#ca8a04' : '#dc2626';
+  const resolvedFarmName = resolveFarmName(farmName);
 
   return `
   <!DOCTYPE html>
@@ -198,9 +236,9 @@ export function generateBillHtml(data: BillPdfData): string {
   <body>
     <div class="header">
       <div style="display: flex; align-items: center; gap: 14px;">
-        <img src="${APP_LOGO_BASE64}" alt="${farmName}" style="width: 70px; height: 70px; object-fit: contain; border-radius: 12px; border: 1px solid #bbf7d0;" />
+        <img src="${APP_LOGO_BASE64}" alt="${resolvedFarmName}" style="width: 70px; height: 70px; object-fit: contain; border-radius: 12px; border: 1px solid #bbf7d0;" />
         <div>
-          <div class="farm-title">${farmName}</div>
+          <div class="farm-title">${resolvedFarmName}</div>
           <div class="tagline">Fresh from Our Farm to Your Family</div>
         </div>
       </div>
@@ -251,7 +289,7 @@ export function generateBillHtml(data: BillPdfData): string {
       <div class="summary-box">
         <div class="summary-row">
           <span style="color: #64748b;">Total Milk:</span>
-          <span style="font-weight: 700;">${finalLitres} L</span>
+          <span style="font-weight: 700;">${formatBillQuantity(finalLitres)}</span>
         </div>
         <div class="summary-row">
           <span style="color: #64748b;">Rate per Litre:</span>
@@ -273,7 +311,7 @@ export function generateBillHtml(data: BillPdfData): string {
     </div>
 
     <div class="footer">
-      Thank you for your business! For queries, please contact ${farmName}.
+      Thank you for your business! For queries, please contact ${resolvedFarmName}.
     </div>
 
     <script>
@@ -320,7 +358,8 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDow
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(17);
-  doc.text(farmName.toUpperCase(), margin + 24, 12);
+  const resolvedFarmName = resolveFarmName(farmName);
+  doc.text(resolvedFarmName.toUpperCase(), margin + 24, 12);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
@@ -389,9 +428,9 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDow
     const dayTotal = mQty + eQty;
     calculatedTotalLitres += dayTotal;
 
-    const mDisplay = !mEntry ? '—' : mEntry.status === 'no_milk' ? 'No Milk' : `${mEntry.quantity_litre || 0} L`;
-    const eDisplay = !eEntry ? '—' : eEntry.status === 'no_milk' ? 'No Milk' : `${eEntry.quantity_litre || 0} L`;
-    const dayTotalDisplay = dayTotal > 0 ? `${dayTotal.toFixed(2)} L` : '—';
+    const mDisplay = !mEntry ? '—' : mEntry.status === 'no_milk' ? 'No Milk' : formatBillQuantity(mEntry.quantity_litre || 0);
+    const eDisplay = !eEntry ? '—' : eEntry.status === 'no_milk' ? 'No Milk' : formatBillQuantity(eEntry.quantity_litre || 0);
+    const dayTotalDisplay = dayTotal > 0 ? formatBillQuantity(dayTotal) : '—';
 
     tableBody.push([
       format(new Date(dStr + 'T00:00:00'), 'dd MMM (EEE)'),
@@ -410,7 +449,7 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDow
   autoTable(doc, {
     head: [['Date', 'Morning Batch', 'Evening Batch', 'Daily Total']],
     body: tableBody,
-    foot: [['TOTAL DELIVERED', '—', '—', `${finalLitres} Litres`]],
+    foot: [['TOTAL DELIVERED', '—', '—', `${formatBillQuantity(finalLitres)}`]],
     startY: 58,
     margin: { left: margin, right: margin, bottom: 42, top: 18 },
     showHead: 'everyPage',
@@ -472,7 +511,7 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDow
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Total Litres: ${finalLitres} L  @  Rs. ${rate}/L`, margin + 4, finalY + 7);
+  doc.text(`Total Litres: ${formatBillQuantity(finalLitres)}  @  Rs. ${rate}/L`, margin + 4, finalY + 7);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
@@ -524,13 +563,14 @@ export function shareBillViaWhatsApp(data: BillPdfData) {
   const finalAmount = bill ? bill.total_amount : 0;
   const paidAmount = bill ? bill.paid_amount : 0;
   const balance = bill ? bill.balance_amount : 0;
+  const resolvedFarmName = resolveFarmName(farmName);
 
-  const text = `🥛 *${farmName}*%0A` +
+  const text = `🥛 *${resolvedFarmName}*%0A` +
     `_Fresh from Our Farm to Your Family_%0A` +
     `👤 Customer: *${customer.name}*%0A` +
     `📅 Month: *${monthName}*%0A` +
     `----------------------------%0A` +
-    `🥛 Total Milk: *${finalLitres} Litres*%0A` +
+    `🥛 Total Milk: *${formatBillQuantity(finalLitres)}*%0A` +
     `💰 Rate: *₹${rate}/L*%0A` +
     `💵 Total Bill: *₹${finalAmount}*%0A` +
     `✅ Paid: *₹${paidAmount}*%0A` +

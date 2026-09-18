@@ -13,7 +13,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (settings) {
-      setFarmName(settings.farm_name || 'Azhagi Farm');
+      setFarmName(settings.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA');
       setDefaultRate(String(settings.default_rate || 60));
     }
   }, [settings]);
@@ -45,11 +45,11 @@ export default function SettingsPage() {
         <div className="flex items-center gap-4 mb-4 pb-4 border-b border-gray-100">
           <img
             src="/logo.png"
-            alt="Azhagi Farm Milk"
+            alt="AZHAGI NATURA"
             className="w-16 h-16 object-contain rounded-2xl border border-green-100 shadow-xs shrink-0"
           />
           <div className="min-w-0">
-            <h2 className="font-bold text-gray-900 text-base">{farmName || 'Azhagi Farm'}</h2>
+            <h2 className="font-bold text-gray-900 text-base">{farmName || 'AZHAGI NATURA'}</h2>
             <p className="text-xs text-green-700 font-medium italic">{TAGLINE}</p>
             <p className="text-[11px] text-gray-400 mt-0.5">Brand Logo Active &amp; Verified</p>
           </div>
@@ -60,7 +60,7 @@ export default function SettingsPage() {
           type="text"
           value={farmName}
           onChange={(e) => setFarmName(e.target.value)}
-          placeholder="Azhagi Farm"
+          placeholder="AZHAGI NATURA"
           className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-green-400"
         />
 

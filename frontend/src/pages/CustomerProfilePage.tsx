@@ -545,7 +545,7 @@ export default function CustomerProfilePage() {
             onClick={async () => {
               try {
                 const res = await downloadCustomerBillPdf({
-                  farmName: settings?.farm_name || 'Azhagi Farm',
+                  farmName: settings?.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA',
                   customer,
                   bill: bill || undefined,
                   entries,
@@ -566,7 +566,7 @@ export default function CustomerProfilePage() {
           <button
             onClick={() =>
               shareBillViaWhatsApp({
-                farmName: settings?.farm_name || 'Azhagi Farm',
+                farmName: settings?.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA',
                 customer,
                 bill: bill || undefined,
                 entries,

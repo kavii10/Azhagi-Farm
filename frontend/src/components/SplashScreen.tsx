@@ -52,7 +52,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         <div className="relative mb-3 sm:mb-4">
           <img
             src="/logo.png"
-            alt="Azhagi Farm Milk"
+            alt="AZHAGI NATURA"
             className="w-72 h-72 sm:w-80 sm:h-80 md:w-88 md:h-88 object-contain transition-transform duration-500 hover:scale-105"
             style={{
               filter: isDark
@@ -67,7 +67,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
           className="text-3xl sm:text-4xl font-extrabold tracking-tight mb-1.5"
           style={{ color: isDark ? '#ffffff' : '#0f172a' }}
         >
-          Azhagi Farm
+          AZHAGI NATURA
         </h1>
 
         {/* Farm Tagline */}
