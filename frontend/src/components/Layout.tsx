@@ -16,11 +16,16 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
+import toast from 'react-hot-toast';
 import { useTheme } from '../lib/theme';
 import { useSyncStatus } from '../lib/syncManager';
+import { useLockStore } from '../store/lockStore';
+import PinModal from './PinModal';
 
 const NAV_ITEMS = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', desc: 'Daily overview & revenue' },
@@ -46,6 +51,7 @@ export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { toggleTheme, isDark } = useTheme();
   const { status, queueCount, syncNow } = useSyncStatus();
+  const { isUnlocked, lock, requestUnlock } = useLockStore();
   const navigate = useNavigate();
   const today = new Date();
 
@@ -145,6 +151,43 @@ export default function Layout() {
               )}
             </button>
 
+            {/* Security PIN Lock/Unlock Button (Mobile & Desktop) */}
+            <button
+              type="button"
+              onClick={() => {
+                if (isUnlocked) {
+                  lock();
+                  toast.success('🔒 Locked! Data is protected from accidental edits.');
+                } else {
+                  requestUnlock(undefined, 'Enter Password to Edit Data');
+                }
+              }}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer',
+                isUnlocked
+                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 shadow-xs'
+                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-800 hover:bg-amber-100'
+              )}
+              title={
+                isUnlocked
+                  ? 'Editing is UNLOCKED. Click to Lock and protect data from accidental touches.'
+                  : 'App is LOCKED (View-Only). Click to enter password and enable editing.'
+              }
+              aria-label={isUnlocked ? 'Lock editing' : 'Unlock editing'}
+            >
+              {isUnlocked ? (
+                <>
+                  <Unlock size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" strokeWidth={2.4} />
+                  <span className="hidden sm:inline font-bold">Edit Mode</span>
+                </>
+              ) : (
+                <>
+                  <Lock size={15} className="text-amber-600 dark:text-amber-400 shrink-0" strokeWidth={2.4} />
+                  <span className="hidden sm:inline font-bold">Locked</span>
+                </>
+              )}
+            </button>
+
             {/* Live date badge */}
             <div className="hidden sm:flex items-center gap-1.5 bg-gray-50 dark:bg-gray-800/80 border border-gray-200/80 dark:border-gray-700 px-3 py-1.5 rounded-xl text-xs font-semibold text-gray-700 dark:text-gray-300">
               <span>📅</span>
@@ -153,7 +196,7 @@ export default function Layout() {
 
             {/* Quick action: Add customer */}
             <button
-              onClick={() => navigate('/customers/add')}
+              onClick={() => requestUnlock(() => navigate('/customers/add'), 'Enter Password to Add Customer')}
               className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-xs sm:text-sm font-semibold shadow-xs transition-colors"
             >
               <Plus size={16} />
@@ -280,6 +323,9 @@ export default function Layout() {
           </NavLink>
         ))}
       </nav>
+
+      {/* Global Security PIN Verification Modal */}
+      <PinModal />
     </div>
   );
 }

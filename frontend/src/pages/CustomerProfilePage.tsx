@@ -18,6 +18,7 @@ import { format, getDaysInMonth } from 'date-fns';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store/appStore';
+import { useLockStore } from '../store/lockStore';
 import ConfirmActionModal from '../components/ConfirmActionModal';
 import {
   getCustomer,
@@ -229,6 +230,7 @@ export default function CustomerProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { settings, removeCustomer } = useAppStore();
+  const { requestUnlock } = useLockStore();
 
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -388,7 +390,7 @@ export default function CustomerProfilePage() {
           Customers
         </button>
         <button
-          onClick={() => navigate(`/customers/${customer.id}/edit`)}
+          onClick={() => requestUnlock(() => navigate(`/customers/${customer.id}/edit`), `Enter Password to Edit ${customer.name}`)}
           className="flex items-center gap-1.5 text-green-600 hover:text-green-700 text-sm font-medium"
         >
           <Edit2 size={16} />
@@ -521,7 +523,7 @@ export default function CustomerProfilePage() {
         <div className="flex flex-wrap gap-2">
           {bill && bill.balance_amount > 0 && (
             <button
-              onClick={() => setShowPayment(true)}
+              onClick={() => requestUnlock(() => setShowPayment(true), `Enter Password to Add Payment for ${customer.name}`)}
               className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white py-2.5 px-4 rounded-xl text-sm font-medium hover:bg-green-700 shadow-sm"
             >
               <Plus size={16} />
@@ -530,7 +532,7 @@ export default function CustomerProfilePage() {
           )}
           {bill && !bill.is_finalized && (
             <button
-              onClick={handleFinalize}
+              onClick={() => requestUnlock(handleFinalize, 'Enter Password to Finalize Bill')}
               className="px-3 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-200"
               title="Finalize and lock this month's bill"
             >
@@ -588,13 +590,13 @@ export default function CustomerProfilePage() {
         <h3 className="text-sm font-bold text-red-700 mb-3">Customer Actions</h3>
         <div className="flex flex-col sm:flex-row gap-3">
           <button
-            onClick={handleDeactivate}
+            onClick={() => requestUnlock(handleDeactivate, `Enter Password to Deactivate ${customer.name}`)}
             className="flex-1 text-xs font-semibold py-2 px-3 border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors text-center"
           >
             Deactivate
           </button>
           <button
-            onClick={handleDelete}
+            onClick={() => requestUnlock(handleDelete, `Enter Password to Delete ${customer.name}`)}
             className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 px-3 border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors text-center"
           >
             <Trash2 size={14} />
@@ -659,7 +661,7 @@ export default function CustomerProfilePage() {
                     <>
                       {/* Morning pill */}
                       <button
-                        onClick={() => setEditEntry({ date: dateStr, batch: 'morning', entry: mEntry })}
+                        onClick={() => requestUnlock(() => setEditEntry({ date: dateStr, batch: 'morning', entry: mEntry }), `Enter Password to Edit ${customer.name}`)}
                         className="px-2 py-0.5 rounded-md hover:bg-orange-50 transition-colors"
                       >
                         <span className="text-gray-400 mr-1">🌅</span>
@@ -674,7 +676,7 @@ export default function CustomerProfilePage() {
 
                       {/* Evening pill */}
                       <button
-                        onClick={() => setEditEntry({ date: dateStr, batch: 'evening', entry: eEntry })}
+                        onClick={() => requestUnlock(() => setEditEntry({ date: dateStr, batch: 'evening', entry: eEntry }), `Enter Password to Edit ${customer.name}`)}
                         className="px-2 py-0.5 rounded-md hover:bg-purple-50 transition-colors"
                       >
                         <span className="text-gray-400 mr-1">🌙</span>
@@ -691,11 +693,14 @@ export default function CustomerProfilePage() {
                     /* Single batch */
                     <button
                       onClick={() =>
-                        setEditEntry({
-                          date: dateStr,
-                          batch: customer.batch === 'evening' ? 'evening' : 'morning',
-                          entry: customer.batch === 'evening' ? eEntry : mEntry,
-                        })
+                        requestUnlock(() =>
+                          setEditEntry({
+                            date: dateStr,
+                            batch: customer.batch === 'evening' ? 'evening' : 'morning',
+                            entry: customer.batch === 'evening' ? eEntry : mEntry,
+                          }),
+                          `Enter Password to Edit ${customer.name}`
+                        )
                       }
                       className="px-2 py-0.5 rounded-md hover:bg-gray-100 transition-colors"
                     >

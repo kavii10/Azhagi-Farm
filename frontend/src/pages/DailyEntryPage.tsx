@@ -13,11 +13,14 @@ import {
   Sparkles,
   Plus,
   Minus,
+  Lock,
+  Unlock,
 } from 'lucide-react';
 import { format, isSameDay } from 'date-fns';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 import { useAppStore } from '../store/appStore';
+import { useLockStore } from '../store/lockStore';
 import { getMilkEntriesForDate, upsertMilkEntry, bulkNoMilk } from '../lib/api';
 import type { Customer, MilkEntry, Batch } from '../types';
 import { QUANTITY_OPTIONS as QTY_OPTIONS, formatQuantity } from '../types';
@@ -462,6 +465,7 @@ function CustomerRow({
 export default function DailyEntryPage() {
   const [searchParams] = useSearchParams();
   const { customers } = useAppStore();
+  const { isUnlocked, requestUnlock } = useLockStore();
   const [batch, setBatch] = useState<Batch>(
     (searchParams.get('batch') as Batch) || 'morning'
   );
@@ -560,41 +564,43 @@ export default function DailyEntryPage() {
     setEntries((prev) => new Map(prev).set(`${customer.id}:${batch}`, saved));
   };
 
-  // 1-Tap Quick Save handler (Optimistic UI update + instant feedback)
-  const handleQuickSave = async (
+  // 1-Tap Quick Save handler (Guarded with requestUnlock to prevent accidental touches)
+  const handleQuickSave = (
     customer: Customer,
     qty: number,
     status: 'delivered' | 'no_milk'
   ) => {
-    const optimistic: MilkEntry = {
-      id: entries.get(`${customer.id}:${batch}`)?.id || `temp-${Date.now()}`,
-      owner_id: 'owner',
-      customer_id: customer.id,
-      entry_date: selectedDate,
-      batch,
-      quantity_litre: status === 'delivered' ? qty : undefined,
-      status,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setEntries((prev) => new Map(prev).set(`${customer.id}:${batch}`, optimistic));
-    toast.success(
-      status === 'no_milk' ? `🚫 ${customer.name}: No Milk` : `✓ ${customer.name}: ${qty} L saved`,
-      { id: `quick-${customer.id}` }
-    );
-
-    try {
-      const saved = await upsertMilkEntry({
+    requestUnlock(async () => {
+      const optimistic: MilkEntry = {
+        id: entries.get(`${customer.id}:${batch}`)?.id || `temp-${Date.now()}`,
+        owner_id: 'owner',
         customer_id: customer.id,
         entry_date: selectedDate,
         batch,
         quantity_litre: status === 'delivered' ? qty : undefined,
         status,
-      });
-      setEntries((prev) => new Map(prev).set(`${customer.id}:${batch}`, saved));
-    } catch (e: any) {
-      toast.error(`Failed to save: ${e.message}`);
-    }
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setEntries((prev) => new Map(prev).set(`${customer.id}:${batch}`, optimistic));
+      toast.success(
+        status === 'no_milk' ? `🚫 ${customer.name}: No Milk` : `✓ ${customer.name}: ${qty} L saved`,
+        { id: `quick-${customer.id}` }
+      );
+
+      try {
+        const saved = await upsertMilkEntry({
+          customer_id: customer.id,
+          entry_date: selectedDate,
+          batch,
+          quantity_litre: status === 'delivered' ? qty : undefined,
+          status,
+        });
+        setEntries((prev) => new Map(prev).set(`${customer.id}:${batch}`, saved));
+      } catch (e: any) {
+        toast.error(`Failed to save: ${e.message}`);
+      }
+    }, `Enter Password to Save for ${customer.name}`);
   };
 
   const handleStepCustomer = (customer: Customer, delta: number) => {
@@ -625,25 +631,27 @@ export default function DailyEntryPage() {
     await loadEntries();
   };
 
-  const handleDeliverAllRemainingDefaults = async () => {
-    const unentered = batchCustomers.filter((c) => !entries.has(`${c.id}:${batch}`));
-    if (unentered.length === 0) return toast.success('All customers already entered!');
+  const handleDeliverAllRemainingDefaults = () => {
+    requestUnlock(async () => {
+      const unentered = batchCustomers.filter((c) => !entries.has(`${c.id}:${batch}`));
+      if (unentered.length === 0) return toast.success('All customers already entered!');
 
-    for (const c of unentered) {
-      const defaultQty =
-        batch === 'evening' && c.batch === 'both'
-          ? c.default_quantity_evening_litre || 0.5
-          : c.default_quantity_litre;
-      await upsertMilkEntry({
-        customer_id: c.id,
-        entry_date: selectedDate,
-        batch,
-        quantity_litre: defaultQty,
-        status: 'delivered',
-      });
-    }
-    toast.success(`✓ Marked ${unentered.length} customers with default deliveries!`);
-    await loadEntries();
+      for (const c of unentered) {
+        const defaultQty =
+          batch === 'evening' && c.batch === 'both'
+            ? c.default_quantity_evening_litre || 0.5
+            : c.default_quantity_litre;
+        await upsertMilkEntry({
+          customer_id: c.id,
+          entry_date: selectedDate,
+          batch,
+          quantity_litre: defaultQty,
+          status: 'delivered',
+        });
+      }
+      toast.success(`✓ Marked ${unentered.length} customers with default deliveries!`);
+      await loadEntries();
+    }, 'Enter Password to Fill Defaults');
   };
 
   const totalLitres = Array.from(entries.values())
@@ -723,6 +731,55 @@ export default function DailyEntryPage() {
         )}
       </div>
 
+      {/* Protection Status Banner */}
+      <div
+        onClick={() => !isUnlocked && requestUnlock(undefined, 'Enter Password to Edit Data')}
+        className={clsx(
+          'rounded-2xl px-4 py-3 mb-4 text-xs font-semibold flex items-center justify-between gap-3 border transition-all select-none',
+          isUnlocked
+            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+            : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-800 hover:bg-amber-100 cursor-pointer shadow-xs'
+        )}
+      >
+        <div className="flex items-center gap-2.5">
+          {isUnlocked ? (
+            <>
+              <div className="w-7 h-7 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 flex items-center justify-center shrink-0">
+                <Unlock size={15} className="text-emerald-700 dark:text-emerald-300" strokeWidth={2.5} />
+              </div>
+              <div>
+                <span className="font-bold">Edit Mode Active:</span>
+                <span className="text-emerald-700 dark:text-emerald-300/80 ml-1">
+                  1-Tap buttons will record deliveries. (Click lock in top header to re-lock)
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="w-7 h-7 rounded-xl bg-amber-100 dark:bg-amber-900/60 flex items-center justify-center shrink-0">
+                <Lock size={15} className="text-amber-700 dark:text-amber-300" strokeWidth={2.5} />
+              </div>
+              <div>
+                <span className="font-bold">View-Only Protection:</span>
+                <span className="text-amber-700 dark:text-amber-300/80 ml-1">
+                  Accidental touches are blocked. Tap any button or here to enter password.
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        <span
+          className={clsx(
+            'text-[11px] font-bold px-2.5 py-1 rounded-lg shrink-0',
+            isUnlocked
+              ? 'bg-emerald-200/60 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'
+              : 'bg-amber-200/70 dark:bg-amber-900 text-amber-900 dark:text-amber-100'
+          )}
+        >
+          {isUnlocked ? 'Unlocked' : 'Tap to Unlock'}
+        </span>
+      </div>
+
       {/* Batch Toggle */}
       <div className="flex bg-gray-100 rounded-xl p-1 mb-4">
         <button
@@ -780,7 +837,7 @@ export default function DailyEntryPage() {
         <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
           <button
             type="button"
-            onClick={() => setShowQuickBulk(true)}
+            onClick={() => requestUnlock(() => setShowQuickBulk(true), 'Enter Password to Open Bulk Entry Sheet')}
             className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-white text-green-800 font-black px-4 py-2.5 rounded-xl shadow-xs text-xs sm:text-sm hover:bg-green-50 active:scale-95 transition-all"
           >
             <Sparkles size={16} className="text-amber-500" />
@@ -847,8 +904,8 @@ export default function DailyEntryPage() {
               customer={customer}
               batch={batch}
               entry={entries.get(`${customer.id}:${batch}`)}
-              onEdit={() => setEditingCustomer(customer)}
-              onBulkNoMilk={() => setBulkCustomer(customer)}
+              onEdit={() => requestUnlock(() => setEditingCustomer(customer), `Enter Password to Edit ${customer.name}`)}
+              onBulkNoMilk={() => requestUnlock(() => setBulkCustomer(customer), `Enter Password to Set No Milk for ${customer.name}`)}
               onQuickSave={(qty, status) => handleQuickSave(customer, qty, status)}
               onStep={(delta) => handleStepCustomer(customer, delta)}
             />
