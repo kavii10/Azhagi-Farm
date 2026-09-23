@@ -30,6 +30,7 @@ import {
 } from '../lib/overallStatementPdf';
 import { useRealtimeSubscription } from '../lib/realtimeSync';
 import toast from 'react-hot-toast';
+import { useLockStore } from '../store/lockStore';
 
 type BillRow = MonthlyBill & { customer: Customer };
 type FilterStatus = 'all' | 'paid' | 'partial' | 'pending';
@@ -38,6 +39,7 @@ type FilterBatch = 'all' | 'morning' | 'evening' | 'both';
 export default function MonthlyBillsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { settings, customers } = useAppStore();
+  const { requestUnlock } = useLockStore();
   const now = new Date();
 
   const [activeTab, setActiveTab] = useState<'individual' | 'overall'>(
@@ -716,8 +718,10 @@ export default function MonthlyBillsPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        setPaymentBill(bill);
-                        setPaymentAmount(bill.balance_amount > 0 ? bill.balance_amount.toString() : '');
+                        requestUnlock(() => {
+                          setPaymentBill(bill);
+                          setPaymentAmount(bill.balance_amount > 0 ? bill.balance_amount.toString() : '');
+                        }, 'Enter Password to Add Payment');
                       }}
                       className="flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 py-1.5 px-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors active:scale-95 shadow-xs"
                       title="Add Payment"
