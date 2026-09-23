@@ -21,6 +21,7 @@ import {
   type AnimalStatus,
   type DailyYield,
 } from '../lib/cattleStore';
+import { useLockStore } from '../store/lockStore';
 
 const STATUS_COLORS: Record<AnimalStatus, string> = {
   milking: 'bg-green-100 text-green-700',
@@ -186,6 +187,7 @@ function QuickYieldModal({
 
 export default function CattlePage() {
   const navigate = useNavigate();
+  const { requestUnlock } = useLockStore();
 
   // Date selection state for calendar / previous days
   const todayStr = new Date().toISOString().split('T')[0];
@@ -253,7 +255,7 @@ export default function CattlePage() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/cattle/add')}
+          onClick={() => requestUnlock(() => navigate('/cattle/add'), 'Enter Password to Add Animal')}
           className="inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm transition-colors shrink-0"
         >
           <Plus size={18} />
@@ -383,7 +385,7 @@ export default function CattlePage() {
               Start tracking your dairy cattle by adding your cows and buffaloes with their milking status.
             </p>
             <button
-              onClick={() => navigate('/cattle/add')}
+              onClick={() => requestUnlock(() => navigate('/cattle/add'), 'Enter Password to Add Animal')}
               className="mt-5 inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl shadow-sm transition-colors"
             >
               <Plus size={16} />
@@ -462,7 +464,7 @@ export default function CattlePage() {
                     {animal.status === 'milking' && (
                       <button
                         type="button"
-                        onClick={() => setEditModal({ animal, existing: yEntry })}
+                        onClick={() => requestUnlock(() => setEditModal({ animal, existing: yEntry }), 'Enter Password to Record Yield')}
                         className="flex-1 inline-flex items-center justify-center gap-1.5 bg-green-50 hover:bg-green-100 text-green-700 text-xs font-semibold py-2 px-3 rounded-xl transition-colors"
                       >
                         <Milk size={14} />

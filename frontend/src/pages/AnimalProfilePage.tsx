@@ -15,6 +15,7 @@ import {
   type DailyYield,
   type AnimalStatus,
 } from '../lib/cattleStore';
+import { useLockStore } from '../store/lockStore';
 
 const STATUS_COLORS: Record<AnimalStatus, string> = {
   milking: 'bg-green-100 text-green-700',
@@ -84,6 +85,7 @@ function YieldInput({
 export default function AnimalProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { requestUnlock } = useLockStore();
 
   const now = new Date();
   const todayStr = now.toISOString().split('T')[0];
@@ -200,7 +202,7 @@ export default function AnimalProfilePage() {
           <span>Cattle Inventory</span>
         </button>
         <button
-          onClick={() => navigate(`/cattle/${animal.id}/edit`)}
+          onClick={() => requestUnlock(() => navigate(`/cattle/${animal.id}/edit`), 'Enter Password to Edit Animal')}
           className="flex items-center gap-1.5 text-green-600 hover:text-green-700 text-sm font-semibold"
         >
           <Edit2 size={16} />
@@ -310,7 +312,7 @@ export default function AnimalProfilePage() {
                   Total: <strong className="text-gray-900 font-bold text-base">{(morningYield + eveningYield).toFixed(2)} L</strong>
                 </div>
                 <button
-                  onClick={handleSaveYield}
+                  onClick={() => requestUnlock(handleSaveYield, 'Enter Password to Save Yield')}
                   disabled={saving}
                   className="bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60 shadow-xs transition-colors"
                 >
@@ -325,7 +327,7 @@ export default function AnimalProfilePage() {
             <h3 className="text-sm font-bold text-red-700 mb-2">Animal Actions</h3>
             <p className="text-xs text-gray-400 mb-3">Permanently remove this animal from farm records.</p>
             <button
-              onClick={() => setConfirmDeleteOpen(true)}
+              onClick={() => requestUnlock(() => setConfirmDeleteOpen(true), 'Enter Password to Delete Animal')}
               className="flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 px-4 border border-red-200 text-red-700 bg-red-50 hover:bg-red-100 rounded-xl transition-colors w-full"
             >
               <Trash2 size={15} />
@@ -391,7 +393,7 @@ export default function AnimalProfilePage() {
                     key={dateStr}
                     onClick={() => {
                       if (!isFuture) {
-                        setEntryDate(dateStr);
+                        requestUnlock(() => setEntryDate(dateStr), 'Enter Password to Edit Yield');
                       }
                     }}
                     className={clsx(
