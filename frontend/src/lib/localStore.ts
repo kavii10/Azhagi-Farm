@@ -142,18 +142,20 @@ migrateLegacyIds();
 
 // ─── Cache Trimming & Space Maintenance ──────────────────────────────────────
 /**
- * Trims old data from localStorage to keep storage footprint minimal:
- * - Retains milk entries from the last 30 days only.
- * - Retains monthly bills from the last 3 months only.
+ * Trims old data from localStorage to keep storage footprint manageable:
+ * - Retains milk entries from the last 90 days (3 months for backfilling).
+ * - Retains monthly bills from the last 12 months (full year history).
  * - Retains payments associated with the retained bills.
- * - Retains ALL customers (critical for offline daily entry operations).
+ * - Retains ALL customers (critical for offline operations and old bill display).
+ *
+ * NOTE: daysToKeep param is kept for API compatibility but defaults to 90.
  */
-export function cleanOldLocalData(daysToKeep = 30): { freedEntries: number; freedBills: number } {
+export function cleanOldLocalData(daysToKeep = 90): { freedEntries: number; freedBills: number } {
   let freedEntries = 0;
   let freedBills = 0;
 
   try {
-    // 1. Trim milk entries
+    // 1. Trim milk entries (keep last 90 days for backfilling support)
     const entries = getJson<MilkEntry[]>(STORAGE_KEYS.ENTRIES, []);
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysToKeep);
@@ -166,12 +168,13 @@ export function cleanOldLocalData(daysToKeep = 30): { freedEntries: number; free
       console.log(`[LocalStorage] Cleaned ${freedEntries} old milk entries (kept last ${daysToKeep} days)`);
     }
 
-    // 2. Trim monthly bills (keep last 3 months)
+    // 2. Trim monthly bills (keep last 12 months — full year history for bills/pending)
     const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
     const now = new Date();
-    const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-    const minYear = threeMonthsAgo.getFullYear();
-    const minMonth = threeMonthsAgo.getMonth() + 1;
+    // Keep 12 months: go back 11 months from current month
+    const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    const minYear = twelveMonthsAgo.getFullYear();
+    const minMonth = twelveMonthsAgo.getMonth() + 1;
 
     const keptBills = bills.filter((b) => {
       if (b.billing_year > minYear) return true;
@@ -183,11 +186,11 @@ export function cleanOldLocalData(daysToKeep = 30): { freedEntries: number; free
       setJson(STORAGE_KEYS.BILLS, keptBills);
       const keptBillIds = new Set(keptBills.map((b) => b.id));
 
-      // Trim associated payments
+      // Trim payments that belong to removed bills only
       const payments = getJson<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
       const keptPayments = payments.filter((p) => keptBillIds.has(p.bill_id));
       setJson(STORAGE_KEYS.PAYMENTS, keptPayments);
-      console.log(`[LocalStorage] Cleaned ${freedBills} old monthly bills`);
+      console.log(`[LocalStorage] Cleaned ${freedBills} old monthly bills (kept last 12 months)`);
     }
   } catch (e) {
     console.warn('[LocalStorage] cleanOldLocalData error:', e);
@@ -419,16 +422,27 @@ export function bulkNoMilkLocal(
 // ---- Monthly Bills ----
 export function getLocalMonthlyBills(year: number, month: number): (MonthlyBill & { customer: Customer })[] {
   const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
-  const customers = getLocalCustomers(true);
+  const customers = getLocalCustomers(true); // include inactive — needed for historical bills
   const custMap = new Map(customers.map((c) => [c.id, c]));
 
   const filtered = bills.filter((b) => b.billing_year === year && b.billing_month === month);
-  return filtered
-    .map((b) => ({
-      ...b,
-      customer: custMap.get(b.customer_id)!,
-    }))
-    .filter((b) => Boolean(b.customer));
+  return filtered.map((b) => ({
+    ...b,
+    // Use real customer if available; otherwise use a placeholder so the bill is never silently dropped
+    customer: custMap.get(b.customer_id) ?? {
+      id: b.customer_id,
+      name: 'Unknown Customer',
+      phone: '',
+      address: '',
+      batch: 'morning' as const,
+      quantity_litre: 0,
+      default_quantity_litre: 0,
+      active: false,
+      owner_id: undefined as any,
+      created_at: '',
+      updated_at: '',
+    },
+  }));
 }
 
 export function saveLocalMonthlyBills(year: number, month: number, fetchedBills: MonthlyBill[]): void {
@@ -566,6 +580,55 @@ export function addLocalPayment(data: {
 export function getLocalPaymentsForBill(billId: string): Payment[] {
   const list = getJson<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
   return list.filter((p) => p.bill_id === billId).sort((a, b) => a.payment_date.localeCompare(b.payment_date));
+}
+
+/**
+ * Scans ALL local bills and computes total outstanding (unpaid) balances across every month.
+ * Used offline when Supabase is not available, to show correct pending dues on Dashboard.
+ */
+export function getLocalAllOutstandingBalance(currentYear: number, currentMonth: number): {
+  totalOutstanding: number;
+  currentMonthPending: number;
+  previousMonthsPending: number;
+  billsByCustomer: { customerId: string; customerName: string; totalPending: number; months: { year: number; month: number; balance: number }[] }[];
+} {
+  const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
+  const customers = getLocalCustomers(true);
+  const custMap = new Map(customers.map((c) => [c.id, c]));
+
+  let totalOutstanding = 0;
+  let currentMonthPending = 0;
+  let previousMonthsPending = 0;
+  const byCustomer = new Map<string, { name: string; total: number; months: { year: number; month: number; balance: number }[] }>();
+
+  for (const b of bills) {
+    const bal = parseFloat((b.balance_amount || 0).toFixed(2));
+    if (bal <= 0) continue;
+    totalOutstanding += bal;
+    const isCurrent = b.billing_year === currentYear && b.billing_month === currentMonth;
+    if (isCurrent) currentMonthPending += bal;
+    else previousMonthsPending += bal;
+
+    const custName = custMap.get(b.customer_id)?.name || 'Unknown Customer';
+    if (!byCustomer.has(b.customer_id)) {
+      byCustomer.set(b.customer_id, { name: custName, total: 0, months: [] });
+    }
+    const entry = byCustomer.get(b.customer_id)!;
+    entry.total += bal;
+    entry.months.push({ year: b.billing_year, month: b.billing_month, balance: bal });
+  }
+
+  return {
+    totalOutstanding: parseFloat(totalOutstanding.toFixed(2)),
+    currentMonthPending: parseFloat(currentMonthPending.toFixed(2)),
+    previousMonthsPending: parseFloat(previousMonthsPending.toFixed(2)),
+    billsByCustomer: Array.from(byCustomer.entries()).map(([id, v]) => ({
+      customerId: id,
+      customerName: v.name,
+      totalPending: parseFloat(v.total.toFixed(2)),
+      months: v.months.sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month),
+    })).sort((a, b) => b.totalPending - a.totalPending),
+  };
 }
 
 // ---- Local Auth Helper ----

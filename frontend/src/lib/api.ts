@@ -494,6 +494,89 @@ export async function getMonthlyBills(year: number, month: number) {
   return local.getLocalMonthlyBills(year, month);
 }
 
+/**
+ * Returns total outstanding (unpaid) balance across ALL months — not just the current month.
+ * This is the correct "total dues" figure that carries across month boundaries.
+ */
+export async function getAllOutstandingBalance(): Promise<{
+  totalOutstanding: number;
+  currentMonthPending: number;
+  previousMonthsPending: number;
+  billsByCustomer: { customerId: string; customerName: string; totalPending: number; months: { year: number; month: number; balance: number }[] }[];
+}> {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  if (isSupabaseConfigured() && navigator.onLine) {
+    try {
+      // Get all non-paid bills across all time
+      const { data, error } = await supabase
+        .from("monthly_bills")
+        .select("*, customer:customers(*)")
+        .gt("balance_amount", 0);
+      if (!error && data) {
+        // Also save each month's bills to local cache
+        const monthGroups = new Map<string, any[]>();
+        for (const b of data as any[]) {
+          const key = `${b.billing_year}-${b.billing_month}`;
+          if (!monthGroups.has(key)) monthGroups.set(key, []);
+          monthGroups.get(key)!.push(b);
+        }
+        for (const [key, bills] of monthGroups) {
+          const [y, m] = key.split('-').map(Number);
+          local.saveLocalMonthlyBills(y, m, bills);
+        }
+        return computeOutstandingStats(data as any[], currentYear, currentMonth);
+      }
+    } catch (e) {
+      console.warn("[Supabase] getAllOutstandingBalance failed:", e);
+    }
+  }
+  // Offline: scan all local bills
+  return local.getLocalAllOutstandingBalance(currentYear, currentMonth);
+}
+
+function computeOutstandingStats(
+  bills: any[],
+  currentYear: number,
+  currentMonth: number
+) {
+  let totalOutstanding = 0;
+  let currentMonthPending = 0;
+  let previousMonthsPending = 0;
+  const custMap = new Map<string, { name: string; total: number; months: { year: number; month: number; balance: number }[] }>();
+
+  for (const b of bills) {
+    const bal = parseFloat((b.balance_amount || 0).toFixed(2));
+    if (bal <= 0) continue;
+    totalOutstanding += bal;
+    const isCurrent = b.billing_year === currentYear && b.billing_month === currentMonth;
+    if (isCurrent) currentMonthPending += bal;
+    else previousMonthsPending += bal;
+
+    const custName = b.customer?.name || b.customer_name || 'Unknown';
+    if (!custMap.has(b.customer_id)) {
+      custMap.set(b.customer_id, { name: custName, total: 0, months: [] });
+    }
+    const entry = custMap.get(b.customer_id)!;
+    entry.total += bal;
+    entry.months.push({ year: b.billing_year, month: b.billing_month, balance: bal });
+  }
+
+  return {
+    totalOutstanding: parseFloat(totalOutstanding.toFixed(2)),
+    currentMonthPending: parseFloat(currentMonthPending.toFixed(2)),
+    previousMonthsPending: parseFloat(previousMonthsPending.toFixed(2)),
+    billsByCustomer: Array.from(custMap.entries()).map(([id, v]) => ({
+      customerId: id,
+      customerName: v.name,
+      totalPending: parseFloat(v.total.toFixed(2)),
+      months: v.months.sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month),
+    })).sort((a, b) => b.totalPending - a.totalPending),
+  };
+}
+
 // ============================================================
 // Payments
 // ============================================================

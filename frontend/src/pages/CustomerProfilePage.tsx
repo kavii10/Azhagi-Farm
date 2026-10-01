@@ -31,6 +31,7 @@ import {
   recalculateBill,
   deactivateCustomer,
   deleteCustomer,
+  getAllOutstandingBalance,
 } from '../lib/api';
 import type { Customer, MilkEntry, MonthlyBill, Payment, Batch } from '../types';
 import {
@@ -243,6 +244,7 @@ export default function CustomerProfilePage() {
   const [loading, setLoading] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
   const [editEntry, setEditEntry] = useState<{ date: string; batch: Batch; entry?: MilkEntry } | null>(null);
+  const [totalAllMonthsBalance, setTotalAllMonthsBalance] = useState(0);
 
   const defaultRate = settings?.default_rate || 60;
 
@@ -274,6 +276,15 @@ export default function CustomerProfilePage() {
         }
       } catch {
         setBill(null);
+      }
+
+      // Calculate total outstanding balance across ALL months for this customer
+      try {
+        const outstanding = await getAllOutstandingBalance();
+        const custEntry = outstanding.billsByCustomer.find((bc) => bc.customerId === id);
+        setTotalAllMonthsBalance(custEntry?.totalPending ?? 0);
+      } catch {
+        setTotalAllMonthsBalance(0);
       }
     } finally {
       setLoading(false);
@@ -456,6 +467,24 @@ export default function CustomerProfilePage() {
               </div>
             </div>
           </div>
+
+          {/* Total Outstanding Balance across ALL months — shown if customer has unpaid dues from any month */}
+          {totalAllMonthsBalance > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-orange-900">⚠️ Total Outstanding Balance</div>
+                  <div className="text-xs text-orange-600 mt-0.5">Pending across all months</div>
+                </div>
+                <div className="text-xl font-extrabold text-orange-700">{formatCurrency(totalAllMonthsBalance)}</div>
+              </div>
+              {bill && bill.balance_amount > 0 && totalAllMonthsBalance > bill.balance_amount && (
+                <div className="mt-2 pt-2 border-t border-orange-200 text-xs text-orange-700">
+                  Includes <strong>{formatCurrency(totalAllMonthsBalance - bill.balance_amount)}</strong> from previous months
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Monthly Summary */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">

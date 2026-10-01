@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Milk, Sunrise, Moon, Plus, IndianRupee, ClipboardList } from 'lucide-react';
 import { format } from 'date-fns';
-import { getDashboardStats, getMonthlyBills } from '../lib/api';
+import { getDashboardStats, getMonthlyBills, getAllOutstandingBalance } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import { formatCurrency } from '../types';
 import { getTodayFarmYield, getAnimals, syncCattleWithCloud } from '../lib/cattleStore';
@@ -75,6 +75,10 @@ export default function DashboardPage() {
     collected: number;
     pending: number;
   } | null>(null);
+  const [allTimePending, setAllTimePending] = useState<{
+    totalOutstanding: number;
+    previousMonthsPending: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [cattleYield, setCattleYield] = useState({ total: 0, morning: 0, evening: 0 });
   const [milkingCount, setMilkingCount] = useState(0);
@@ -84,9 +88,10 @@ export default function DashboardPage() {
 
   const load = async () => {
     try {
-      const [s, bills] = await Promise.all([
+      const [s, bills, outstanding] = await Promise.all([
         getDashboardStats(todayStr),
         getMonthlyBills(year, month),
+        getAllOutstandingBalance(),
       ]);
       setStats(s);
 
@@ -96,6 +101,10 @@ export default function DashboardPage() {
         expected: parseFloat(expected.toFixed(2)),
         collected: parseFloat(collected.toFixed(2)),
         pending: parseFloat((expected - collected).toFixed(2)),
+      });
+      setAllTimePending({
+        totalOutstanding: outstanding.totalOutstanding,
+        previousMonthsPending: outstanding.previousMonthsPending,
       });
     } catch (e) {
       console.error(e);
@@ -311,9 +320,32 @@ export default function DashboardPage() {
                       <div className="text-base sm:text-lg font-bold text-red-600">
                         {formatCurrency(billSummary.pending)}
                       </div>
-                      <div className="text-[11px] text-red-500 mt-0.5">Pending</div>
+                      <div className="text-[11px] text-red-500 mt-0.5">This Month</div>
                     </div>
                   </div>
+
+                  {/* Previous months pending — shown only if there are dues from older months */}
+                  {allTimePending && allTimePending.previousMonthsPending > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-100">
+                      <div className="flex items-center justify-between bg-orange-50 rounded-2xl px-4 py-3">
+                        <div>
+                          <div className="text-xs font-bold text-orange-800">⚠️ Previous Months Pending</div>
+                          <div className="text-[11px] text-orange-600 mt-0.5">Unpaid dues from older bills</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-base font-extrabold text-orange-700">
+                            {formatCurrency(allTimePending.previousMonthsPending)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 px-1">
+                        <span className="text-xs text-gray-500 font-medium">Total Outstanding (All Months)</span>
+                        <span className="text-sm font-extrabold text-red-700">
+                          {formatCurrency(allTimePending.totalOutstanding)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
