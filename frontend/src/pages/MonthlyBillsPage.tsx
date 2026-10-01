@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
-import { getMonthlyBills, getOrCreateMonthlyBill, recalculateBill, getMilkEntriesForCustomer, addPayment } from '../lib/api';
+import { getMonthlyBills, getOrCreateMonthlyBill, recalculateBill, getMilkEntriesForCustomer, addPayment, getAllOutstandingBalance } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import type { MonthlyBill, Customer } from '../types';
 import { formatCurrency, getBillStatusLabel, getBillStatusColor } from '../types';
@@ -64,6 +64,9 @@ export default function MonthlyBillsPage() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [savingPayment, setSavingPayment] = useState(false);
 
+  // Previous dues per customer: customerId -> { totalPending, months[] }
+  const [prevDuesMap, setPrevDuesMap] = useState<Map<string, { totalPending: number; previousOnly: number; months: { year: number; month: number; balance: number }[] }>>(new Map());
+
   const farmName = settings?.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA';
   const defaultRate = settings?.default_rate || 60;
   const monthName = format(new Date(year, month - 1), 'MMMM yyyy');
@@ -71,8 +74,25 @@ export default function MonthlyBillsPage() {
   const loadBills = async () => {
     setLoading(true);
     try {
-      const data = await getMonthlyBills(year, month);
+      const [data, outstanding] = await Promise.all([
+        getMonthlyBills(year, month),
+        getAllOutstandingBalance(),
+      ]);
       setBills(data as BillRow[]);
+
+      // Build a map: customerId -> { totalPending (all months), previousOnly (excluding current view month) }
+      const map = new Map<string, { totalPending: number; previousOnly: number; months: { year: number; month: number; balance: number }[] }>();
+      for (const bc of outstanding.billsByCustomer) {
+        const previousOnly = bc.months
+          .filter((m) => !(m.year === year && m.month === month))
+          .reduce((s, m) => s + m.balance, 0);
+        map.set(bc.customerId, {
+          totalPending: bc.totalPending,
+          previousOnly: parseFloat(previousOnly.toFixed(2)),
+          months: bc.months,
+        });
+      }
+      setPrevDuesMap(map);
     } catch (err: any) {
       toast.error('Failed to load bills: ' + (err?.message || 'Error'));
     } finally {
@@ -671,108 +691,180 @@ export default function MonthlyBillsPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-              {filtered.map((bill) => (
-                <div
-                  key={bill.id}
-                  className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 shadow-xs p-4 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <h4 className="font-extrabold text-sm sm:text-base text-gray-900 dark:text-white">
-                          {bill.customer.name}
-                        </h4>
-                        <div className="text-[11px] text-gray-400 dark:text-gray-500">
-                          {bill.customer.phone || 'No phone'} • Rate: ₹{bill.rate_per_litre}/L
+              {filtered.map((bill) => {
+                const prevDue = prevDuesMap.get(bill.customer_id);
+                const previousOnly = prevDue?.previousOnly ?? 0;
+                const totalDue = parseFloat((bill.balance_amount + previousOnly).toFixed(2));
+                const hasPrevDue = previousOnly > 0;
+
+                return (
+                  <div
+                    key={bill.id}
+                    className={clsx(
+                      "bg-white dark:bg-gray-900 rounded-2xl border shadow-xs p-4 flex flex-col justify-between",
+                      hasPrevDue
+                        ? "border-orange-300 dark:border-orange-800"
+                        : "border-gray-200 dark:border-gray-800"
+                    )}
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div>
+                          <h4 className="font-extrabold text-sm sm:text-base text-gray-900 dark:text-white">
+                            {bill.customer.name}
+                          </h4>
+                          <div className="text-[11px] text-gray-400 dark:text-gray-500">
+                            {bill.customer.phone || 'No phone'} • Rate: ₹{bill.rate_per_litre}/L
+                          </div>
+                        </div>
+                        <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full capitalize', getBillStatusColor(bill.status))}>
+                          {getBillStatusLabel(bill.status)}
+                        </span>
+                      </div>
+
+                      {/* This month bill amounts */}
+                      <div className="grid grid-cols-3 gap-2 mt-3 text-xs bg-gray-50 dark:bg-gray-800/60 p-2.5 rounded-xl">
+                        <div>
+                          <div className="text-[10px] text-gray-400">This Month</div>
+                          <div className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm">
+                            {formatCurrency(bill.total_amount)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-400">Paid</div>
+                          <div className="font-bold text-green-700 dark:text-green-400 text-xs sm:text-sm">
+                            {formatCurrency(bill.paid_amount)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] text-gray-400">This Balance</div>
+                          <div className={clsx('font-extrabold text-xs sm:text-sm', bill.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>
+                            {formatCurrency(bill.balance_amount)}
+                          </div>
                         </div>
                       </div>
-                      <span className={clsx('text-[10px] font-bold px-2 py-0.5 rounded-full capitalize', getBillStatusColor(bill.status))}>
-                        {getBillStatusLabel(bill.status)}
-                      </span>
+
+                      {/* Previous months dues — shown prominently when they exist */}
+                      {hasPrevDue && (
+                        <div className="mt-2 bg-orange-50 dark:bg-orange-950/40 border border-orange-200 dark:border-orange-800/60 rounded-xl px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-[10px] font-bold text-orange-800 dark:text-orange-300">⚠️ Previous Months Pending</div>
+                              <div className="text-[10px] text-orange-600 dark:text-orange-400 mt-0.5">
+                                {(prevDue?.months ?? [])
+                                  .filter((m) => !(m.year === year && m.month === month) && m.balance > 0)
+                                  .map((m) => `${format(new Date(m.year, m.month - 1), 'MMM yy')}: ${formatCurrency(m.balance)}`)
+                                  .join(' • ')}
+                              </div>
+                            </div>
+                            <div className="text-sm font-extrabold text-orange-700 dark:text-orange-300 shrink-0 ml-2">
+                              {formatCurrency(previousOnly)}
+                            </div>
+                          </div>
+                          {/* Total due across all months */}
+                          {totalDue > 0 && (
+                            <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-orange-200 dark:border-orange-700/50">
+                              <span className="text-[10px] font-extrabold text-red-800 dark:text-red-300">Total Due (All Months)</span>
+                              <span className="text-sm font-extrabold text-red-700 dark:text-red-400">{formatCurrency(totalDue)}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 mt-3 text-xs bg-gray-50 dark:bg-gray-800/60 p-2.5 rounded-xl">
-                      <div>
-                        <div className="text-[10px] text-gray-400">Total Bill</div>
-                        <div className="font-bold text-gray-900 dark:text-white text-xs sm:text-sm">
-                          {formatCurrency(bill.total_amount)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-gray-400">Paid</div>
-                        <div className="font-bold text-green-700 dark:text-green-400 text-xs sm:text-sm">
-                          {formatCurrency(bill.paid_amount)}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[10px] text-gray-400">Balance</div>
-                        <div className={clsx('font-extrabold text-xs sm:text-sm', bill.balance_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400')}>
-                          {formatCurrency(bill.balance_amount)}
-                        </div>
-                      </div>
+                    {/* Card Action buttons */}
+                    <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          requestUnlock(() => {
+                            setPaymentBill(bill);
+                            // Pre-fill with total due (this month + previous), not just balance
+                            setPaymentAmount(totalDue > 0 ? totalDue.toString() : '');
+                          }, 'Enter Password to Add Payment');
+                        }}
+                        className={clsx(
+                          "flex items-center gap-1 text-xs font-bold py-1.5 px-2.5 rounded-lg border transition-colors active:scale-95 shadow-xs",
+                          totalDue > 0
+                            ? "text-white bg-emerald-600 hover:bg-emerald-700 border-emerald-700"
+                            : "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border-emerald-200 dark:border-emerald-800"
+                        )}
+                        title="Add Payment"
+                      >
+                        <IndianRupee size={13} />
+                        <span>{totalDue > 0 ? `Pay ${formatCurrency(totalDue)}` : 'Add Payment'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleDownloadIndividualPdf(e, bill)}
+                        disabled={downloadingBillId === bill.id}
+                        className="flex items-center gap-1 text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 py-1.5 px-2.5 rounded-lg transition-colors active:scale-95 disabled:opacity-50"
+                        title="Download clean PDF invoice"
+                      >
+                        <FileDown size={14} />
+                        <span>{downloadingBillId === bill.id ? 'Downloading...' : 'Download PDF'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => handleShareWhatsApp(e, bill)}
+                        className="flex items-center gap-1 text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 py-1.5 px-2.5 rounded-lg transition-colors active:scale-95"
+                        title="Share bill details on WhatsApp"
+                      >
+                        <Share2 size={14} />
+                        <span>Share</span>
+                      </button>
                     </div>
                   </div>
-
-                  {/* Card Action buttons */}
-                  <div className="flex items-center justify-end gap-1.5 sm:gap-2 mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        requestUnlock(() => {
-                          setPaymentBill(bill);
-                          setPaymentAmount(bill.balance_amount > 0 ? bill.balance_amount.toString() : '');
-                        }, 'Enter Password to Add Payment');
-                      }}
-                      className="flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 py-1.5 px-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800 transition-colors active:scale-95 shadow-xs"
-                      title="Add Payment"
-                    >
-                      <IndianRupee size={13} />
-                      <span>Add Payment</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDownloadIndividualPdf(e, bill)}
-                      disabled={downloadingBillId === bill.id}
-                      className="flex items-center gap-1 text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 py-1.5 px-2.5 rounded-lg transition-colors active:scale-95 disabled:opacity-50"
-                      title="Download clean PDF invoice"
-                    >
-                      <FileDown size={14} />
-                      <span>{downloadingBillId === bill.id ? 'Downloading...' : 'Download PDF'}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => handleShareWhatsApp(e, bill)}
-                      className="flex items-center gap-1 text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 py-1.5 px-2.5 rounded-lg transition-colors active:scale-95"
-                      title="Share bill details on WhatsApp"
-                    >
-                      <Share2 size={14} />
-                      <span>Share</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
-          {/* Pending summary banner */}
-          {filtered.some((b) => b.balance_amount > 0) && (
+          {/* Pending summary banner — shows this month + previous months dues for ALL customers */}
+          {!loading && filtered.some((b) => {
+            const prev = prevDuesMap.get(b.customer_id)?.previousOnly ?? 0;
+            return b.balance_amount > 0 || prev > 0;
+          }) && (
             <div className="mt-6 bg-red-50 dark:bg-red-950/40 rounded-2xl p-4 border border-red-100 dark:border-red-900/50">
-              <p className="text-xs sm:text-sm font-bold text-red-700 dark:text-red-400 mb-2">🔴 Pending Payments Summary</p>
+              <p className="text-xs sm:text-sm font-bold text-red-700 dark:text-red-400 mb-2">🔴 Total Pending Summary (All Months)</p>
               {filtered
-                .filter((b) => b.balance_amount > 0)
-                .map((b) => (
-                  <div key={b.id} className="flex justify-between text-xs sm:text-sm py-1 border-b border-red-100/50 dark:border-red-900/30 last:border-0">
-                    <span className="text-gray-700 dark:text-gray-300 font-medium">{b.customer.name}</span>
-                    <span className="font-bold text-red-600 dark:text-red-400">{formatCurrency(b.balance_amount)}</span>
+                .map((b) => {
+                  const prev = prevDuesMap.get(b.customer_id)?.previousOnly ?? 0;
+                  const total = parseFloat((b.balance_amount + prev).toFixed(2));
+                  return { bill: b, prev, total };
+                })
+                .filter(({ total }) => total > 0)
+                .sort((a, b) => b.total - a.total)
+                .map(({ bill, prev, total }) => (
+                  <div key={bill.id} className="flex items-center justify-between text-xs sm:text-sm py-1.5 border-b border-red-100/50 dark:border-red-900/30 last:border-0 gap-2">
+                    <span className="text-gray-700 dark:text-gray-300 font-medium min-w-0 truncate">{bill.customer.name}</span>
+                    <div className="flex items-center gap-3 shrink-0">
+                      {prev > 0 && (
+                        <span className="text-[10px] text-orange-600 dark:text-orange-400">
+                          (prev: {formatCurrency(prev)})
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => requestUnlock(() => {
+                          setPaymentBill(bill);
+                          setPaymentAmount(total.toString());
+                        }, 'Enter Password to Add Payment')}
+                        className="text-[10px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-2 py-0.5 rounded-lg transition-colors"
+                      >
+                        Pay
+                      </button>
+                      <span className="font-bold text-red-600 dark:text-red-400 min-w-[60px] text-right">{formatCurrency(total)}</span>
+                    </div>
                   </div>
                 ))}
               <div className="flex justify-between text-xs sm:text-sm font-extrabold border-t border-red-200 dark:border-red-900/50 mt-2.5 pt-2">
-                <span>Total Outstanding</span>
+                <span>Grand Total Outstanding</span>
                 <span className="text-red-600 dark:text-red-400">
                   {formatCurrency(
                     filtered
-                      .filter((b) => b.balance_amount > 0)
-                      .reduce((s, b) => s + b.balance_amount, 0)
+                      .map((b) => parseFloat((b.balance_amount + (prevDuesMap.get(b.customer_id)?.previousOnly ?? 0)).toFixed(2)))
+                      .reduce((s, v) => s + v, 0)
                   )}
                 </span>
               </div>
@@ -782,51 +874,105 @@ export default function MonthlyBillsPage() {
       )}
 
       {/* Quick Record Payment Modal */}
-      {paymentBill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 sm:p-6 w-full max-w-sm">
-            <h3 className="text-base font-extrabold text-gray-900 dark:text-white mb-1">
-              Record Payment
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-              Customer: <strong className="text-gray-900 dark:text-white">{paymentBill.customer.name}</strong> • Balance: <span className="font-bold text-red-600">{formatCurrency(paymentBill.balance_amount)}</span>
-            </p>
+      {paymentBill && (() => {
+        const prevDue = prevDuesMap.get(paymentBill.customer_id);
+        const previousOnly = prevDue?.previousOnly ?? 0;
+        const totalDue = parseFloat((paymentBill.balance_amount + previousOnly).toFixed(2));
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 sm:p-6 w-full max-w-sm">
+              <h3 className="text-base font-extrabold text-gray-900 dark:text-white mb-1">
+                Record Payment
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Customer: <strong className="text-gray-900 dark:text-white">{paymentBill.customer.name}</strong>
+              </p>
 
-            <div className="mb-4">
-              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block mb-1">
-                Amount Paid (₹)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                placeholder="Enter amount paid"
-                className="w-full px-3.5 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-bold bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-400"
-                autoFocus
-              />
-            </div>
+              {/* Balance breakdown */}
+              <div className="bg-gray-50 dark:bg-gray-800/60 rounded-2xl p-3 mb-4 space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">This month's balance</span>
+                  <span className="font-bold text-red-600 dark:text-red-400">{formatCurrency(paymentBill.balance_amount)}</span>
+                </div>
+                {previousOnly > 0 && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-orange-600 dark:text-orange-400 font-medium">⚠️ Previous months dues</span>
+                      <span className="font-bold text-orange-600 dark:text-orange-400">{formatCurrency(previousOnly)}</span>
+                    </div>
+                    {(prevDue?.months ?? [])
+                      .filter((m) => !(m.year === year && m.month === month) && m.balance > 0)
+                      .map((m) => (
+                        <div key={`${m.year}-${m.month}`} className="flex justify-between pl-4 text-[10px] text-gray-400">
+                          <span>{format(new Date(m.year, m.month - 1), 'MMMM yyyy')}</span>
+                          <span>{formatCurrency(m.balance)}</span>
+                        </div>
+                      ))}
+                  </>
+                )}
+                <div className="flex justify-between border-t border-gray-200 dark:border-gray-700 pt-1.5 mt-1">
+                  <span className="font-extrabold text-gray-800 dark:text-white">Total Outstanding</span>
+                  <span className="font-extrabold text-red-700 dark:text-red-400">{formatCurrency(totalDue)}</span>
+                </div>
+              </div>
 
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setPaymentBill(null)}
-                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSavePayment}
-                disabled={savingPayment}
-                className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-extrabold shadow-xs transition-colors disabled:opacity-50"
-              >
-                {savingPayment ? 'Saving...' : 'Save Payment'}
-              </button>
+              <div className="mb-4">
+                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block mb-1">
+                  Amount Paid (₹)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  placeholder="Enter amount paid"
+                  className="w-full px-3.5 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-bold bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                  autoFocus
+                />
+                {/* Quick amount buttons */}
+                {totalDue > 0 && (
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentAmount(paymentBill.balance_amount.toString())}
+                      className="flex-1 text-[10px] font-bold py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      This Month<br />{formatCurrency(paymentBill.balance_amount)}
+                    </button>
+                    {previousOnly > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPaymentAmount(totalDue.toString())}
+                        className="flex-1 text-[10px] font-bold py-1.5 rounded-lg bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
+                      >
+                        All Dues<br />{formatCurrency(totalDue)}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPaymentBill(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSavePayment}
+                  disabled={savingPayment}
+                  className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-extrabold shadow-xs transition-colors disabled:opacity-50"
+                >
+                  {savingPayment ? 'Saving...' : 'Save Payment'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
