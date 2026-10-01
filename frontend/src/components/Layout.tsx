@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef } from 'react';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { App as CapApp } from '@capacitor/app';
 import {
   LayoutDashboard,
   Milk,
@@ -53,7 +54,59 @@ export default function Layout() {
   const { status, queueCount, syncNow } = useSyncStatus();
   const { isUnlocked, lock, requestUnlock } = useLockStore();
   const navigate = useNavigate();
+  const location = useLocation();
   const today = new Date();
+  const lastBackPressTime = useRef<number>(0);
+
+  // Handle Android mobile back gestures (swiping back) and hardware back button
+  useEffect(() => {
+    let removeListener: (() => void) | undefined;
+
+    const setupBackListener = async () => {
+      try {
+        const handler = await CapApp.addListener('backButton', () => {
+          // 1. If security PIN modal is open, close it
+          if (useLockStore.getState().isPinModalOpen) {
+            useLockStore.getState().closePinModal();
+            return;
+          }
+
+          // 2. If sidebar drawer is open, close it
+          if (sidebarOpen) {
+            setSidebarOpen(false);
+            return;
+          }
+
+          // 3. If on Dashboard, double-tap back within 2 seconds to exit app
+          if (location.pathname === '/dashboard') {
+            const now = Date.now();
+            if (now - lastBackPressTime.current < 2000) {
+              CapApp.exitApp();
+            } else {
+              lastBackPressTime.current = now;
+              toast('Press back again to exit', { id: 'exit-app-toast', duration: 1800 });
+            }
+            return;
+          }
+
+          // 4. On any other screen, navigate to the previous page
+          navigate(-1);
+        });
+
+        removeListener = () => {
+          handler.remove();
+        };
+      } catch (err) {
+        console.debug('[Capacitor] backButton listener setup:', err);
+      }
+    };
+
+    setupBackListener();
+
+    return () => {
+      if (removeListener) removeListener();
+    };
+  }, [location.pathname, sidebarOpen, navigate]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 flex flex-col transition-colors duration-200">

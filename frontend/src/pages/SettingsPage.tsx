@@ -157,13 +157,6 @@ export default function SettingsPage() {
           </button>
         </div>
 
-        <div className="bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-2xl p-3.5 mb-5 text-xs text-amber-900 dark:text-amber-200">
-          <p className="font-semibold mb-0.5">💡 How it works:</p>
-          <p>
-            When someone opens the app, data is visible for browsing, but <strong>modifying any entry</strong> requires entering your password. Initial password is <strong>1A2B</strong> (letters &amp; numbers allowed). You can update it below at any time.
-          </p>
-        </div>
-
         {/* Change Password Form */}
         <form onSubmit={handleUpdatePassword} className="space-y-3.5">
           <h3 className="text-sm font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
@@ -182,7 +175,7 @@ export default function SettingsPage() {
                   type={showOld ? 'text' : 'password'}
                   value={oldPin}
                   onChange={(e) => setOldPin(e.target.value)}
-                  placeholder="e.g. 1A2B"
+                  placeholder="Enter current password"
                   className="w-full pl-3 pr-9 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-green-500 dark:text-white"
                   autoComplete="off"
                 />
@@ -206,7 +199,7 @@ export default function SettingsPage() {
                   type={showNew ? 'text' : 'password'}
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value)}
-                  placeholder="Letters &amp; Numbers"
+                  placeholder="Enter new password"
                   className="w-full pl-3 pr-9 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-green-500 dark:text-white"
                   autoComplete="off"
                 />
@@ -230,7 +223,7 @@ export default function SettingsPage() {
                   type={showConfirm ? 'text' : 'password'}
                   value={confirmPin}
                   onChange={(e) => setConfirmPin(e.target.value)}
-                  placeholder="Repeat new password"
+                  placeholder="Confirm new password"
                   className="w-full pl-3 pr-9 py-2.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-xs font-mono tracking-wider focus:outline-none focus:ring-2 focus:ring-green-500 dark:text-white"
                   autoComplete="off"
                 />
