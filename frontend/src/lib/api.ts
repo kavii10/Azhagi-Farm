@@ -379,7 +379,6 @@ export async function getOrCreateMonthlyBill(
         .maybeSingle();
 
       if (existing) {
-        await rebalanceCustomerBillsAndAdvance(customerId);
         return existing as MonthlyBill;
       }
 
@@ -406,16 +405,14 @@ export async function getOrCreateMonthlyBill(
         .select()
         .single();
       if (!error && data) {
-        await rebalanceCustomerBillsAndAdvance(customerId);
+        local.saveLocalMonthlyBills(year, month, [data as any]);
         return data as MonthlyBill;
       }
     } catch (e) {
       console.warn("[Supabase] getOrCreateMonthlyBill failed:", e);
     }
   }
-  const bill = local.getOrCreateLocalMonthlyBill(customerId, year, month, rate);
-  await rebalanceCustomerBillsAndAdvance(customerId);
-  return bill;
+  return local.getOrCreateLocalMonthlyBill(customerId, year, month, rate);
 }
 
 export async function recalculateBill(billId: string): Promise<MonthlyBill> {
@@ -439,15 +436,56 @@ export async function recalculateBill(billId: string): Promise<MonthlyBill> {
           delivered.reduce((sum, e) => sum + (e.quantity_litre || 0), 0).toFixed(2)
         );
         const totalAmount = parseFloat((totalLitres * bill.rate_per_litre).toFixed(2));
-        const balance = parseFloat(Math.max(0, totalAmount - bill.paid_amount).toFixed(2));
+
+        // Get actual direct payments recorded for this bill
+        const { data: payList } = await supabase
+          .from("payments")
+          .select("amount")
+          .eq("bill_id", billId);
+
+        let paidAmount = parseFloat(
+          (payList || []).reduce((s: number, p: any) => s + (p.amount || 0), 0).toFixed(2)
+        );
+
+        // Apply advance balance if customer has genuine advance
+        try {
+          const { data: cust } = await supabase
+            .from("customers")
+            .select("advance_balance")
+            .eq("id", bill.customer_id)
+            .maybeSingle();
+
+          if (cust && (cust.advance_balance || 0) > 0 && totalAmount > paidAmount) {
+            const adv = cust.advance_balance || 0;
+            const needed = parseFloat((totalAmount - paidAmount).toFixed(2));
+            const toUse = parseFloat(Math.min(adv, needed).toFixed(2));
+            paidAmount = parseFloat((paidAmount + toUse).toFixed(2));
+            const remainingAdv = parseFloat((adv - toUse).toFixed(2));
+            await supabase
+              .from("customers")
+              .update({ advance_balance: remainingAdv })
+              .eq("id", bill.customer_id);
+          }
+        } catch {
+          // Ignored if column doesn't exist
+        }
+
+        const balance = parseFloat(Math.max(0, totalAmount - paidAmount).toFixed(2));
         const status: MonthlyBill["status"] =
-          balance <= 0 ? "paid" : bill.paid_amount > 0 ? "partial" : "pending";
+          totalAmount === 0 && paidAmount === 0
+            ? "pending"
+            : balance <= 0 && totalAmount > 0
+            ? "paid"
+            : paidAmount > 0
+            ? "partial"
+            : "pending";
 
         const { data: updated, error: uErr } = await supabase
           .from("monthly_bills")
           .update({
             total_litres: totalLitres,
             total_amount: totalAmount,
+            paid_amount: paidAmount,
             balance_amount: balance,
             status,
           })
@@ -456,7 +494,7 @@ export async function recalculateBill(billId: string): Promise<MonthlyBill> {
           .single();
 
         if (!uErr && updated) {
-          await rebalanceCustomerBillsAndAdvance(bill.customer_id);
+          local.recalculateLocalBill(billId);
           return updated as MonthlyBill;
         }
       }
@@ -464,9 +502,7 @@ export async function recalculateBill(billId: string): Promise<MonthlyBill> {
       console.warn("[Supabase] recalculateBill failed:", e);
     }
   }
-  const recBill = local.recalculateLocalBill(billId);
-  await rebalanceCustomerBillsAndAdvance(recBill.customer_id);
-  return recBill;
+  return local.recalculateLocalBill(billId);
 }
 
 export async function finalizeBill(billId: string): Promise<MonthlyBill> {
@@ -591,44 +627,8 @@ function computeOutstandingStats(
 }
 
 // ============================================================
-// Payments & Advance Rebalancing Engine
+// Payments
 // ============================================================
-export async function rebalanceCustomerBillsAndAdvance(customerId: string): Promise<{
-  bills: MonthlyBill[];
-  advanceBalance: number;
-}> {
-  // 1. Rebalance locally first for instant UI response
-  const result = local.rebalanceCustomerLocalBillsAndAdvance(customerId);
-
-  // 2. Sync updated bills and customer advance balance to Supabase
-  if (isSupabaseConfigured() && navigator.onLine) {
-    try {
-      for (const b of result.bills) {
-        await supabase
-          .from("monthly_bills")
-          .update({
-            paid_amount: b.paid_amount,
-            balance_amount: b.balance_amount,
-            status: b.status,
-          })
-          .eq("id", b.id);
-      }
-      try {
-        await supabase
-          .from("customers")
-          .update({ advance_balance: result.advanceBalance })
-          .eq("id", customerId);
-      } catch {
-        // Ignore if column is not yet present on remote
-      }
-    } catch (e) {
-      console.warn("[Supabase] rebalanceCustomerBillsAndAdvance sync warning:", e);
-    }
-  }
-
-  return result;
-}
-
 export async function addPayment(payment: {
   bill_id: string;
   customer_id: string;
@@ -644,7 +644,7 @@ export async function addPayment(payment: {
   };
   if (ownerId) paymentPayload.owner_id = ownerId;
 
-  // 1. Always record in local store for instantaneous UI update (triggers local rebalance)
+  // 1. Always record in local store for instantaneous UI update
   const localPayment = local.addLocalPayment(paymentPayload);
 
   // 2. Cloud sync or queue
@@ -661,6 +661,9 @@ export async function addPayment(payment: {
           console.warn("[Supabase] addPayment insert error, queuing sync:", pErr.message);
           addToSyncQueue("payments", "upsert", paymentPayload);
         }
+
+        // Recalculate bill in Supabase
+        await recalculateBill(payment.bill_id);
       } catch (e) {
         console.warn("[Supabase] addPayment failed, queuing sync:", e);
         addToSyncQueue("payments", "upsert", paymentPayload);
@@ -669,9 +672,6 @@ export async function addPayment(payment: {
       addToSyncQueue("payments", "upsert", paymentPayload);
     }
   }
-
-  // 3. Automatically adjust and align across previous, current, and next month bills + advance wallet
-  await rebalanceCustomerBillsAndAdvance(payment.customer_id);
 
   return localPayment;
 }
@@ -693,12 +693,7 @@ export async function getPaymentsForBill(billId: string): Promise<Payment[]> {
 }
 
 export async function deletePayment(paymentId: string, billId: string): Promise<void> {
-  // Determine customer_id from bill's payments or bill
-  const payments = local.getLocalPaymentsForBill(billId);
-  const target = payments.find((p) => p.id === paymentId);
-  const customerId = target?.customer_id;
-
-  // 1. Local delete (triggers local rebalance)
+  // 1. Local delete
   local.deleteLocalPayment(paymentId);
 
   // 2. Supabase delete
@@ -706,6 +701,7 @@ export async function deletePayment(paymentId: string, billId: string): Promise<
     if (navigator.onLine) {
       try {
         await supabase.from("payments").delete().eq("id", paymentId);
+        await recalculateBill(billId);
       } catch (e) {
         console.warn("[Supabase] deletePayment failed:", e);
         addToSyncQueue("payments", "delete", { id: paymentId });
@@ -714,11 +710,6 @@ export async function deletePayment(paymentId: string, billId: string): Promise<
       addToSyncQueue("payments", "delete", { id: paymentId });
     }
   }
-
-  // 3. Rebalance customer bills and advance
-  if (customerId) {
-    await rebalanceCustomerBillsAndAdvance(customerId);
-  }
 }
 
 export async function updatePayment(
@@ -726,11 +717,7 @@ export async function updatePayment(
   updates: { amount?: number; payment_date?: string; notes?: string },
   billId: string
 ): Promise<void> {
-  const payments = local.getLocalPaymentsForBill(billId);
-  const target = payments.find((p) => p.id === paymentId);
-  const customerId = target?.customer_id;
-
-  // 1. Local update (triggers local rebalance)
+  // 1. Local update
   local.updateLocalPayment(paymentId, updates);
 
   // 2. Supabase update
@@ -738,6 +725,7 @@ export async function updatePayment(
     if (navigator.onLine) {
       try {
         await supabase.from("payments").update(updates).eq("id", paymentId);
+        await recalculateBill(billId);
       } catch (e) {
         console.warn("[Supabase] updatePayment failed:", e);
         addToSyncQueue("payments", "upsert", { id: paymentId, ...updates });
@@ -745,11 +733,6 @@ export async function updatePayment(
     } else {
       addToSyncQueue("payments", "upsert", { id: paymentId, ...updates });
     }
-  }
-
-  // 3. Rebalance customer bills and advance
-  if (customerId) {
-    await rebalanceCustomerBillsAndAdvance(customerId);
   }
 }
 
