@@ -13,12 +13,26 @@ import {
   AlertCircle,
   RefreshCw,
   IndianRupee,
+  Edit2,
+  Trash2,
+  Check,
+  X,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import clsx from 'clsx';
-import { getMonthlyBills, getOrCreateMonthlyBill, recalculateBill, getMilkEntriesForCustomer, addPayment, getAllOutstandingBalance } from '../lib/api';
+import {
+  getMonthlyBills,
+  getOrCreateMonthlyBill,
+  recalculateBill,
+  getMilkEntriesForCustomer,
+  addPayment,
+  getPaymentsForBill,
+  deletePayment,
+  updatePayment,
+  getAllOutstandingBalance,
+} from '../lib/api';
 import { useAppStore } from '../store/appStore';
-import type { MonthlyBill, Customer } from '../types';
+import type { MonthlyBill, Customer, Payment } from '../types';
 import { formatCurrency, getBillStatusLabel, getBillStatusColor } from '../types';
 import { downloadCustomerBillPdf, shareBillViaWhatsApp } from '../lib/pdfGenerator';
 import {
@@ -63,6 +77,21 @@ export default function MonthlyBillsPage() {
   const [paymentBill, setPaymentBill] = useState<BillRow | null>(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [savingPayment, setSavingPayment] = useState(false);
+  const [billPayments, setBillPayments] = useState<Payment[]>([]);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [editPaymentAmount, setEditPaymentAmount] = useState('');
+
+  // Load payments when paymentBill is set
+  useEffect(() => {
+    if (paymentBill) {
+      getPaymentsForBill(paymentBill.id)
+        .then(setBillPayments)
+        .catch(console.error);
+    } else {
+      setBillPayments([]);
+      setEditingPaymentId(null);
+    }
+  }, [paymentBill]);
 
   // Previous dues per customer: customerId -> { totalPending, months[] }
   const [prevDuesMap, setPrevDuesMap] = useState<Map<string, { totalPending: number; previousOnly: number; months: { year: number; month: number; balance: number }[] }>>(new Map());
@@ -159,9 +188,10 @@ export default function MonthlyBillsPage() {
   // Share individual customer bill via WhatsApp
   const handleShareWhatsApp = async (e: React.MouseEvent, bill: BillRow) => {
     e.stopPropagation();
+    const toastId = toast.loading(`Preparing PDF bill for ${bill.customer.name}...`);
     try {
       const entries = await getMilkEntriesForCustomer(bill.customer_id, year, month);
-      shareBillViaWhatsApp({
+      await shareBillViaWhatsApp({
         farmName,
         customer: bill.customer,
         bill,
@@ -170,8 +200,10 @@ export default function MonthlyBillsPage() {
         month,
         rate: bill.rate_per_litre,
       });
+      toast.dismiss(toastId);
     } catch (err: any) {
-      toast.error('Failed to share bill: ' + err.message);
+      toast.dismiss(toastId);
+      toast.error('Failed to share bill: ' + (err?.message || 'Error'));
     }
   };
 
@@ -200,6 +232,47 @@ export default function MonthlyBillsPage() {
       toast.error('Failed to save payment: ' + err.message);
     } finally {
       setSavingPayment(false);
+    }
+  };
+
+  const handleDeleteBillPayment = async (p: Payment) => {
+    try {
+      await deletePayment(p.id, p.bill_id);
+      toast.success(`✓ Payment of ${formatCurrency(p.amount)} removed`);
+      const updatedPmts = await getPaymentsForBill(p.bill_id);
+      setBillPayments(updatedPmts);
+      // reload bills to get recalculated balance
+      const reloadedBills = await getMonthlyBills(year, month);
+      const updatedBill = reloadedBills.find((b) => b.id === p.bill_id);
+      if (updatedBill && paymentBill) {
+        setPaymentBill({ ...paymentBill, ...updatedBill });
+      }
+      loadBills();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete payment');
+    }
+  };
+
+  const handleUpdateBillPayment = async (p: Payment) => {
+    const val = parseFloat(editPaymentAmount);
+    if (isNaN(val) || val <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    try {
+      await updatePayment(p.id, { amount: val }, p.bill_id);
+      toast.success(`✓ Payment updated to ${formatCurrency(val)}`);
+      setEditingPaymentId(null);
+      const updatedPmts = await getPaymentsForBill(p.bill_id);
+      setBillPayments(updatedPmts);
+      const reloadedBills = await getMonthlyBills(year, month);
+      const updatedBill = reloadedBills.find((b) => b.id === p.bill_id);
+      if (updatedBill && paymentBill) {
+        setPaymentBill({ ...paymentBill, ...updatedBill });
+      }
+      loadBills();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update payment');
     }
   };
 
@@ -359,7 +432,7 @@ export default function MonthlyBillsPage() {
               <div className="flex items-center gap-3">
                 <img
                   src="/logo.png"
-                  alt="Azhagi Farm"
+                  alt="AZHAGI NATURA"
                   className="w-10 h-10 object-contain rounded-xl border border-green-200 dark:border-green-800 bg-white p-0.5 shrink-0 shadow-xs"
                 />
                 <div>
@@ -770,6 +843,23 @@ export default function MonthlyBillsPage() {
                           )}
                         </div>
                       )}
+
+                      {/* Prepaid Advance Wallet */}
+                      {(bill.customer.advance_balance ?? 0) > 0 && (
+                        <div className="mt-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl px-3 py-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-[10px] font-bold text-emerald-800 dark:text-emerald-300">💳 Advance / Prepaid Wallet</div>
+                              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                                Automatically adjusts with upcoming deliveries
+                              </div>
+                            </div>
+                            <div className="text-sm font-extrabold text-emerald-700 dark:text-emerald-300 shrink-0 ml-2">
+                              +{formatCurrency(bill.customer.advance_balance!)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* Card Action buttons */}
@@ -916,6 +1006,101 @@ export default function MonthlyBillsPage() {
                 </div>
               </div>
 
+              {/* Recorded payments for this bill */}
+              {billPayments.length > 0 && (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                      Paid This Month ({billPayments.length})
+                    </span>
+                    <span className="text-[10px] text-gray-400">Tap to edit / retake</span>
+                  </div>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {billPayments.map((p) => {
+                      const isEditing = editingPaymentId === p.id;
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between text-xs py-1.5 px-2.5 rounded-xl bg-gray-50 dark:bg-gray-800/80 border border-gray-100 dark:border-gray-700"
+                        >
+                          {isEditing ? (
+                            <div className="flex items-center gap-1.5 w-full">
+                              <span className="text-[10px] text-gray-400">₹</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editPaymentAmount}
+                                onChange={(e) => setEditPaymentAmount(e.target.value)}
+                                className="w-24 px-2 py-1 text-xs font-bold border border-green-500 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateBillPayment(p)}
+                                className="p-1 text-white bg-green-600 rounded-md hover:bg-green-700 ml-auto"
+                                title="Save"
+                              >
+                                <Check size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingPaymentId(null)}
+                                className="p-1 text-gray-500 hover:text-gray-700"
+                                title="Cancel"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex flex-col">
+                                <span className="text-gray-600 dark:text-gray-300 text-[11px] font-medium">
+                                  {format(new Date(p.payment_date), 'MMM d, yyyy')}
+                                </span>
+                                {p.notes && <span className="text-[10px] text-gray-400">{p.notes}</span>}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-green-600 dark:text-green-400">
+                                  +{formatCurrency(p.amount)}
+                                </span>
+                                <div className="flex items-center gap-1 border-l border-gray-200 dark:border-gray-700 pl-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      requestUnlock(() => {
+                                        setEditingPaymentId(p.id);
+                                        setEditPaymentAmount(String(p.amount));
+                                      }, 'Enter Password to Edit Payment')
+                                    }
+                                    className="p-1 text-gray-400 hover:text-blue-600 rounded-md transition-colors"
+                                    title="Edit / Retake Payment"
+                                  >
+                                    <Edit2 size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      requestUnlock(
+                                        () => handleDeleteBillPayment(p),
+                                        'Enter Password to Delete Payment'
+                                      )
+                                    }
+                                    className="p-1 text-gray-400 hover:text-red-600 rounded-md transition-colors"
+                                    title="Delete Wrong Payment"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="mb-4">
                 <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block mb-1">
                   Amount Paid (₹)
@@ -950,6 +1135,29 @@ export default function MonthlyBillsPage() {
                     )}
                   </div>
                 )}
+
+                {/* Existing advance if any */}
+                {(paymentBill.customer.advance_balance ?? 0) > 0 && (
+                  <div className="mt-2 text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/50 flex items-center justify-between">
+                    <span>Existing Advance Wallet</span>
+                    <span className="font-extrabold text-emerald-700 dark:text-emerald-300">+{formatCurrency(paymentBill.customer.advance_balance!)}</span>
+                  </div>
+                )}
+
+                {/* Live Advance Surplus Preview */}
+                {(() => {
+                  const val = parseFloat(paymentAmount) || 0;
+                  const surplus = parseFloat(Math.max(0, val - totalDue).toFixed(2));
+                  if (surplus <= 0) return null;
+                  return (
+                    <div className="mt-2 text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 p-2 rounded-xl border border-emerald-200 dark:border-emerald-800/50 flex items-center gap-1.5 animate-in fade-in">
+                      <span>💳</span>
+                      <span>
+                        <strong>+{formatCurrency(surplus)}</strong> will be credited to Advance Wallet for upcoming bills.
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex gap-2">

@@ -5,6 +5,15 @@ import { APP_LOGO_BASE64 } from './logoBase64';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { savePdfCrossPlatform, type PdfDownloadResult } from './pdfDownloader';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { registerPlugin } from '@capacitor/core';
+import toast from 'react-hot-toast';
+
+interface WhatsAppSharePluginInterface {
+  sharePdf(options: { filePath: string; phone?: string; text?: string }): Promise<{ success: boolean }>;
+}
+const WhatsAppShare = registerPlugin<WhatsAppSharePluginInterface>('WhatsAppShare');
 
 export interface BillPdfData {
   farmName: string;
@@ -307,6 +316,11 @@ export function generateBillHtml(data: BillPdfData): string {
           <span>Pending Balance:</span>
           <span style="color: ${balance > 0 ? '#dc2626' : '#16a34a'};">${formatCurrency(balance)}</span>
         </div>
+        ${(customer.advance_balance ?? 0) > 0 ? `
+        <div class="summary-row" style="color: #16a34a; margin-top: 4px;">
+          <span>Advance / Prepaid Wallet:</span>
+          <span style="font-weight: 700;">+ ${formatCurrency(customer.advance_balance!)}</span>
+        </div>` : ''}
       </div>
     </div>
 
@@ -325,10 +339,9 @@ export function generateBillHtml(data: BillPdfData): string {
 }
 
 /**
- * Downloads a clean, professional individual customer bill PDF (A4 format)
- * Works on desktop browsers and mobile (Capacitor Android).
+ * Builds the jsPDF instance and metadata for an individual customer bill PDF (A4 format).
  */
-export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDownloadResult> {
+export function buildCustomerBillPdf(data: BillPdfData): { doc: jsPDF; fileName: string; title: string } {
   const { farmName, customer, bill, entries, year, month, rate } = data;
   const monthDate = new Date(year, month - 1, 1);
   const monthName = format(monthDate, 'MMMM yyyy');
@@ -491,7 +504,7 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDow
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
-      doc.text(`Page ${hookData.pageNumber} of ${totalPages} • ${farmName} - Fresh from Our Farm to Your Family`, margin, pageHeight - 6);
+      doc.text(`Page ${hookData.pageNumber} of ${totalPages} • ${resolvedFarmName} - Fresh from Our Farm to Your Family`, margin, pageHeight - 6);
     },
   });
 
@@ -537,7 +550,18 @@ export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDow
   const cleanCustomer = customer.name.trim().replace(/\s+/g, '_');
   const cleanMonth = format(monthDate, 'MMMM_yyyy');
   const fileName = `${cleanCustomer}_${cleanMonth}_bill.pdf`;
-  return await savePdfCrossPlatform(doc, fileName, `${customer.name} Milk Bill - ${monthName}`);
+  const title = `${customer.name} Milk Bill - ${monthName}`;
+
+  return { doc, fileName, title };
+}
+
+/**
+ * Downloads a clean, professional individual customer bill PDF (A4 format)
+ * Works on desktop browsers and mobile (Capacitor Android).
+ */
+export async function downloadCustomerBillPdf(data: BillPdfData): Promise<PdfDownloadResult> {
+  const { doc, fileName, title } = buildCustomerBillPdf(data);
+  return await savePdfCrossPlatform(doc, fileName, title);
 }
 
 /**
@@ -554,31 +578,111 @@ export function printCustomerBill(data: BillPdfData) {
 }
 
 /**
- * Generates prefilled WhatsApp text message and opens WhatsApp URL
+ * Generates the customer's PDF bill and shares it directly to WhatsApp
+ * with the prefilled bill details and the PDF file attached.
  */
-export function shareBillViaWhatsApp(data: BillPdfData) {
+export async function shareBillViaWhatsApp(data: BillPdfData): Promise<void> {
   const { farmName, customer, bill, year, month, rate } = data;
-  const monthName = format(new Date(year, month - 1, 1), 'MMMM yyyy');
+  const monthDate = new Date(year, month - 1, 1);
+  const monthName = format(monthDate, 'MMMM yyyy');
   const finalLitres = bill ? bill.total_litres : 0;
   const finalAmount = bill ? bill.total_amount : 0;
   const paidAmount = bill ? bill.paid_amount : 0;
   const balance = bill ? bill.balance_amount : 0;
   const resolvedFarmName = resolveFarmName(farmName);
 
-  const text = `🥛 *${resolvedFarmName}*%0A` +
-    `_Fresh from Our Farm to Your Family_%0A` +
-    `👤 Customer: *${customer.name}*%0A` +
-    `📅 Month: *${monthName}*%0A` +
-    `----------------------------%0A` +
-    `🥛 Total Milk: *${formatBillQuantity(finalLitres)}*%0A` +
-    `💰 Rate: *₹${rate}/L*%0A` +
-    `💵 Total Bill: *₹${finalAmount}*%0A` +
-    `✅ Paid: *₹${paidAmount}*%0A` +
-    `🔴 Pending Balance: *₹${balance}*%0A` +
-    `----------------------------%0A` +
-    `Thank you! Please clear any pending balance at your earliest convenience. 🙏`;
+  // 1. Build the PDF document
+  const { doc, fileName, title } = buildCustomerBillPdf(data);
+
+  // 2. Prepare detailed caption message
+  const captionText =
+    `🥛 *${resolvedFarmName}*\n` +
+    `_Fresh from Our Farm to Your Family_\n` +
+    `👤 Customer: *${customer.name}*\n` +
+    `📅 Month: *${monthName}*\n` +
+    `----------------------------\n` +
+    `🥛 Total Milk: *${formatBillQuantity(finalLitres)}*\n` +
+    `💰 Rate: *₹${rate}/L*\n` +
+    `💵 Total Bill: *₹${finalAmount}*\n` +
+    `✅ Paid: *₹${paidAmount}*\n` +
+    `🔴 Pending Balance: *₹${balance}*\n` +
+    ((customer.advance_balance ?? 0) > 0 ? `💳 Advance / Prepaid Wallet: *+₹${customer.advance_balance}*\n` : '') +
+    `----------------------------\n` +
+    `📄 *Detailed PDF bill attached.* Thank you! 🙏`;
 
   const phone = customer.phone ? customer.phone.replace(/[^0-9]/g, '') : '';
-  const url = phone ? `https://wa.me/91${phone}?text=${text}` : `https://wa.me/?text=${text}`;
-  window.open(url, '_blank');
+  const isCapacitorNative =
+    typeof (window as any).Capacitor !== 'undefined' &&
+    typeof (window as any).Capacitor.isNativePlatform === 'function' &&
+    (window as any).Capacitor.isNativePlatform();
+
+  // 3. Native Android app sharing flow
+  if (isCapacitorNative) {
+    try {
+      const dataUri = doc.output('datauristring');
+      const base64Data = dataUri.split(',')[1];
+
+      // Save PDF to cache so FileProvider can grant access to WhatsApp
+      const savedFile = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Cache,
+        recursive: true,
+      });
+
+      // Attempt direct WhatsApp dispatch with the recipient's phone number
+      try {
+        const res = await WhatsAppShare.sharePdf({
+          filePath: savedFile.uri,
+          phone: phone || undefined,
+          text: captionText,
+        });
+        if (res && res.success) {
+          return;
+        }
+      } catch (pluginErr) {
+        console.warn('[WhatsAppShare] Direct plugin failed, falling back to Share plugin:', pluginErr);
+      }
+
+      // Fallback: Use Capacitor Share with file attachment
+      await Share.share({
+        title,
+        text: captionText,
+        files: [savedFile.uri],
+        url: savedFile.uri,
+        dialogTitle: `Send PDF Bill via WhatsApp to ${customer.name}`,
+      });
+      return;
+    } catch (mobileErr) {
+      console.warn('[WhatsAppShare] Native mobile share failed:', mobileErr);
+    }
+  }
+
+  // 4. Web browser flow (Mobile browser with Web Share API files support)
+  try {
+    const blob = doc.output('blob');
+    const file = new File([blob], fileName, { type: 'application/pdf' });
+    if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        title,
+        text: captionText,
+        files: [file],
+      });
+      return;
+    }
+  } catch (webErr) {
+    console.warn('[WhatsAppShare] Web share failed:', webErr);
+  }
+
+  // 5. Desktop browser fallback: download PDF file and open WhatsApp Web with prefilled message
+  try {
+    await savePdfCrossPlatform(doc, fileName, title);
+    toast.success(`✓ PDF downloaded. Opening WhatsApp to message ${customer.name}...`, { duration: 4000 });
+  } catch (dlErr) {
+    console.warn('[WhatsAppShare] Browser download fallback error:', dlErr);
+  }
+
+  const encoded = encodeURIComponent(captionText);
+  const waUrl = phone ? `https://wa.me/91${phone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+  window.open(waUrl, '_blank');
 }

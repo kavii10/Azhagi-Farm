@@ -26,6 +26,8 @@ import {
   getOrCreateMonthlyBill,
   addPayment,
   getPaymentsForBill,
+  deletePayment,
+  updatePayment,
   upsertMilkEntry,
   finalizeBill,
   recalculateBill,
@@ -110,9 +112,24 @@ function AddPaymentModal({
           type="number"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          placeholder={String(bill.balance_amount)}
+          placeholder={String(bill.balance_amount || 0)}
           className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-green-400"
         />
+
+        {/* Advance Surplus Preview */}
+        {(() => {
+          const val = parseFloat(amount) || 0;
+          const surplus = parseFloat(Math.max(0, val - bill.balance_amount).toFixed(2));
+          if (surplus <= 0) return null;
+          return (
+            <div className="mb-3 text-xs bg-emerald-50 text-emerald-800 p-2.5 rounded-xl border border-emerald-200 flex items-center gap-1.5 animate-in fade-in">
+              <span>💳</span>
+              <span>
+                <strong>+{formatCurrency(surplus)}</strong> will be credited to Advance Wallet for upcoming deliveries.
+              </span>
+            </div>
+          );
+        })()}
 
         <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
         <input
@@ -138,6 +155,103 @@ function AddPaymentModal({
         >
           {saving ? 'Saving...' : 'Save Payment'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- Edit Payment Modal ----
+function EditPaymentModal({
+  payment,
+  onClose,
+  onSaved,
+}: {
+  payment: Payment;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [amount, setAmount] = useState(String(payment.amount));
+  const [date, setDate] = useState(payment.payment_date || new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState(payment.notes || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleUpdate = async () => {
+    const val = parseFloat(amount);
+    if (isNaN(val) || val <= 0) return toast.error('Enter a valid amount');
+    setSaving(true);
+    try {
+      await updatePayment(
+        payment.id,
+        {
+          amount: val,
+          payment_date: date,
+          notes,
+        },
+        payment.bill_id
+      );
+      toast.success(`✓ Payment updated to ₹${val}`);
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to update payment');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/40 p-4 animate-in fade-in">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-gray-900">Edit Payment</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">×</button>
+        </div>
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">Payment Amount (₹)</label>
+        <input
+          type="number"
+          step="0.01"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="0.00"
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-green-400 font-semibold"
+          autoFocus
+        />
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-green-400"
+        />
+
+        <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. Cash payment / GPay"
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-green-400"
+        />
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleUpdate}
+            disabled={saving}
+            className="flex-1 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Updating...' : 'Update Payment'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -243,6 +357,9 @@ export default function CustomerProfilePage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [deletingPayment, setDeletingPayment] = useState<Payment | null>(null);
+  const [deletingPaymentLoading, setDeletingPaymentLoading] = useState(false);
   const [editEntry, setEditEntry] = useState<{ date: string; batch: Batch; entry?: MilkEntry } | null>(null);
   const [totalAllMonthsBalance, setTotalAllMonthsBalance] = useState(0);
 
@@ -327,6 +444,20 @@ export default function CustomerProfilePage() {
       checkboxLabel: 'I understand that this action is irreversible and all data will be permanently deleted. I want to proceed.',
       confirmText: 'Permanently Delete Customer',
     });
+  };
+
+  const handleDeletePayment = async (p: Payment) => {
+    setDeletingPaymentLoading(true);
+    try {
+      await deletePayment(p.id, p.bill_id);
+      toast.success(`✓ Payment of ₹${p.amount} removed`);
+      setDeletingPayment(null);
+      await loadData();
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete payment');
+    } finally {
+      setDeletingPaymentLoading(false);
+    }
   };
 
   const executeConfirmAction = async () => {
@@ -486,6 +617,19 @@ export default function CustomerProfilePage() {
             </div>
           )}
 
+          {/* Prepaid / Advance Wallet Balance */}
+          {(customer.advance_balance ?? 0) > 0 && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-bold text-emerald-900">💳 Advance / Prepaid Wallet</div>
+                  <div className="text-xs text-emerald-600 mt-0.5">Automatically offsets future deliveries</div>
+                </div>
+                <div className="text-xl font-extrabold text-emerald-700">+{formatCurrency(customer.advance_balance!)}</div>
+              </div>
+            </div>
+          )}
+
           {/* Monthly Summary */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-3">
@@ -537,12 +681,37 @@ export default function CustomerProfilePage() {
             {payments.length > 0 && (
               <div className="mb-4">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Payment History</p>
-                {payments.map((p) => (
-                  <div key={p.id} className="flex justify-between text-sm py-1.5 border-b border-gray-50 last:border-0">
-                    <span className="text-gray-500">{format(new Date(p.payment_date), 'MMM d, yyyy')}</span>
-                    <span className="font-medium text-green-600">+{formatCurrency(p.amount)}</span>
-                  </div>
-                ))}
+                <div className="space-y-1.5">
+                  {payments.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between text-sm py-2 px-3 rounded-xl bg-gray-50 border border-gray-100">
+                      <div className="flex flex-col">
+                        <span className="text-xs font-semibold text-gray-700">{format(new Date(p.payment_date), 'MMM d, yyyy')}</span>
+                        {p.notes && <span className="text-[11px] text-gray-400">{p.notes}</span>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-green-600">+{formatCurrency(p.amount)}</span>
+                        <div className="flex items-center gap-1 border-l border-gray-200 pl-2 ml-1">
+                          <button
+                            type="button"
+                            onClick={() => requestUnlock(() => setEditingPayment(p), 'Enter Password to Edit Payment')}
+                            className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+                            title="Edit / Retake Payment"
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => requestUnlock(() => setDeletingPayment(p), 'Enter Password to Delete Payment')}
+                            className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                            title="Delete Wrong Payment"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </>
@@ -550,13 +719,13 @@ export default function CustomerProfilePage() {
 
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-2">
-          {bill && bill.balance_amount > 0 && (
+          {bill && (
             <button
               onClick={() => requestUnlock(() => setShowPayment(true), `Enter Password to Add Payment for ${customer.name}`)}
               className="flex-1 flex items-center justify-center gap-2 bg-green-600 text-white py-2.5 px-4 rounded-xl text-sm font-medium hover:bg-green-700 shadow-sm"
             >
               <Plus size={16} />
-              Add Payment
+              {bill.balance_amount > 0 ? 'Add Payment' : 'Add Advance / Payment'}
             </button>
           )}
           {bill && !bill.is_finalized && (
@@ -595,18 +764,25 @@ export default function CustomerProfilePage() {
             Download PDF Bill
           </button>
           <button
-            onClick={() =>
-              shareBillViaWhatsApp({
-                farmName: settings?.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA',
-                customer,
-                bill: bill || undefined,
-                entries,
-                year: viewYear,
-                month: viewMonth,
-                rate,
-              })
-            }
-            className="flex items-center justify-center gap-1.5 bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl text-xs font-semibold hover:bg-emerald-100 transition-colors"
+            onClick={async () => {
+              const toastId = toast.loading('Preparing PDF bill for WhatsApp...');
+              try {
+                await shareBillViaWhatsApp({
+                  farmName: settings?.farm_name && settings.farm_name !== 'Azhagi Farm' && settings.farm_name !== 'Azhagi Farm Milk' ? settings.farm_name : 'AZHAGI NATURA',
+                  customer,
+                  bill: bill || undefined,
+                  entries,
+                  year: viewYear,
+                  month: viewMonth,
+                  rate,
+                });
+                toast.dismiss(toastId);
+              } catch (err: any) {
+                toast.dismiss(toastId);
+                toast.error('Failed to share PDF: ' + (err?.message || 'Error'));
+              }
+            }}
+            className="flex items-center justify-center gap-1.5 bg-emerald-50 text-emerald-800 py-2.5 px-3 rounded-xl text-xs font-semibold hover:bg-emerald-100 transition-colors active:scale-95"
           >
             <Share2 size={16} />
             Share via WhatsApp
@@ -818,6 +994,45 @@ export default function CustomerProfilePage() {
           onClose={() => setConfirmModal(null)}
           loading={modalLoading}
         />
+      )}
+
+      {editingPayment && (
+        <EditPaymentModal
+          payment={editingPayment}
+          onClose={() => setEditingPayment(null)}
+          onSaved={loadData}
+        />
+      )}
+
+      {deletingPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 animate-in fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-5">
+            <h3 className="font-bold text-gray-900 mb-2">Delete Payment?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Are you sure you want to delete this payment of{' '}
+              <strong className="text-gray-900">₹{deletingPayment.amount}</strong> recorded on{' '}
+              {format(new Date(deletingPayment.payment_date), 'MMM d, yyyy')}? The bill balance will be automatically adjusted.
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDeletingPayment(null)}
+                disabled={deletingPaymentLoading}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeletePayment(deletingPayment)}
+                disabled={deletingPaymentLoading}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow-xs transition-colors disabled:opacity-50"
+              >
+                {deletingPaymentLoading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

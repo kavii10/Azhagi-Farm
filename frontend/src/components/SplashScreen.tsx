@@ -26,9 +26,9 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
     const inTimer = setTimeout(() => {
       setFadeIn(true);
       setProgress(100);
-    }, 100);
-    const outTimer = setTimeout(() => setFadeOut(true), 4300);
-    const completeTimer = setTimeout(() => onComplete(), 5000);
+    }, 50);
+    const outTimer = setTimeout(() => setFadeOut(true), 1200);
+    const completeTimer = setTimeout(() => onComplete(), 1500);
     return () => {
       clearTimeout(inTimer);
       clearTimeout(outTimer);
@@ -38,7 +38,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-700 ease-in-out ${
+      className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center select-none overflow-hidden transition-opacity duration-300 ease-in-out ${
         fadeOut ? 'opacity-0 pointer-events-none' : fadeIn ? 'opacity-100' : 'opacity-0'
       }`}
       style={{
@@ -100,7 +100,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
         >
           <div
             className="h-full bg-gradient-to-r from-emerald-500 to-green-400 rounded-full transition-all ease-linear"
-            style={{ width: `${progress}%`, transitionDuration: '4800ms' }}
+            style={{ width: `${progress}%`, transitionDuration: '1150ms' }}
           />
         </div>
         <p

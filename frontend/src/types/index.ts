@@ -29,6 +29,7 @@ export interface Customer {
   custom_rate?: number;
   notes?: string;
   active: boolean;
+  advance_balance?: number; // Auto-adjusting prepaid / advance wallet balance
   created_at: string;
   updated_at: string;
 }

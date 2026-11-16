@@ -140,7 +140,8 @@ export async function sharePdfCrossPlatform(
 
       await Share.share({
         title: shareTitle,
-        text: `${shareTitle} from Azhagi Farm`,
+        text: `${shareTitle} from AZHAGI NATURA`,
+        files: [savedFile.uri],
         url: savedFile.uri,
         dialogTitle: `Share ${shareTitle}`,
       });
@@ -148,6 +149,22 @@ export async function sharePdfCrossPlatform(
     } catch (e) {
       console.warn('[PDF Share] Native share failed:', e);
     }
+  }
+
+  // Web fallback: check if Web Share API with files is supported
+  try {
+    const blob = doc.output('blob');
+    const file = new File([blob], cleanFileName, { type: 'application/pdf' });
+    if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        title: shareTitle,
+        text: `${shareTitle} from AZHAGI NATURA`,
+        files: [file],
+      });
+      return;
+    }
+  } catch (webErr) {
+    console.warn('[PDF Share] Web share failed:', webErr);
   }
 
   // Web fallback: download if share not supported
