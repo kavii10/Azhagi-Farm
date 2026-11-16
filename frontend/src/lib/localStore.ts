@@ -140,6 +140,105 @@ export function migrateLegacyIds(): void {
 // Run ID migration once on module initialization
 migrateLegacyIds();
 
+/**
+ * Completely fixes and restores all customer account tallies to their true mathematical state:
+ * - Recalculates total litres and total amount strictly from delivered milk entries.
+ * - Recalculates paid_amount strictly from actual payments made for each bill (p.bill_id === bill.id).
+ * - Restores true balance_amount = total_amount - paid_amount.
+ * - Restores true status ('paid' | 'partial' | 'pending').
+ * - Eliminates phantom payments and resets customer advance_balance to genuine overpayments only.
+ */
+export function repairAndRestoreCustomerBillTallies(): void {
+  try {
+    const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
+    const payments = getJson<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
+    const customers = getLocalCustomers(true);
+    const now = new Date().toISOString();
+
+    // 1. Group direct payments strictly by bill_id
+    const paymentsByBill = new Map<string, number>();
+    for (const p of payments) {
+      if (p.bill_id) {
+        const cur = paymentsByBill.get(p.bill_id) || 0;
+        paymentsByBill.set(p.bill_id, parseFloat((cur + (p.amount || 0)).toFixed(2)));
+      }
+    }
+
+    const advanceByCustomer = new Map<string, number>();
+    const billIds = new Set(bills.map((b) => b.id));
+
+    // 2. Fix each bill strictly from milk entries and actual direct payments
+    const updatedBills = bills.map((b) => {
+      const entries = getLocalMilkEntriesForCustomer(b.customer_id, b.billing_year, b.billing_month);
+      const delivered = entries.filter((e) => e.status === 'delivered');
+      const totalLitres = parseFloat(
+        delivered.reduce((sum, e) => sum + (e.quantity_litre || 0), 0).toFixed(2)
+      );
+      const totalAmount = parseFloat((totalLitres * b.rate_per_litre).toFixed(2));
+
+      const directPaid = paymentsByBill.get(b.id) || 0;
+      const paidAmount = directPaid;
+      const balance = parseFloat(Math.max(0, totalAmount - paidAmount).toFixed(2));
+
+      // Overpayment is real advance
+      if (directPaid > totalAmount) {
+        const excess = parseFloat((directPaid - totalAmount).toFixed(2));
+        const curAdv = advanceByCustomer.get(b.customer_id) || 0;
+        advanceByCustomer.set(b.customer_id, parseFloat((curAdv + excess).toFixed(2)));
+      }
+
+      const status: MonthlyBill['status'] =
+        totalAmount === 0 && paidAmount === 0
+          ? 'pending'
+          : balance <= 0 && (totalAmount > 0 || paidAmount > 0)
+          ? 'paid'
+          : paidAmount > 0
+          ? 'partial'
+          : 'pending';
+
+      return {
+        ...b,
+        total_litres: totalLitres,
+        total_amount: totalAmount,
+        paid_amount: paidAmount,
+        balance_amount: balance,
+        status,
+        updated_at: now,
+      };
+    });
+
+    // 3. Also check for any unlinked payments to preserve them in customer's advance
+    for (const p of payments) {
+      if (p.customer_id && (!p.bill_id || !billIds.has(p.bill_id))) {
+        const curAdv = advanceByCustomer.get(p.customer_id) || 0;
+        advanceByCustomer.set(p.customer_id, parseFloat((curAdv + (p.amount || 0)).toFixed(2)));
+      }
+    }
+
+    setJson(STORAGE_KEYS.BILLS, updatedBills);
+
+    // 4. Reset customers' advance_balance to genuine amounts only
+    const updatedCustomers = customers.map((c) => ({
+      ...c,
+      advance_balance: advanceByCustomer.get(c.id) || 0,
+      updated_at: now,
+    }));
+    setJson(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+  } catch (err) {
+    console.warn('repairAndRestoreCustomerBillTallies warning:', err);
+  }
+}
+
+// Auto-run to repair any prior tally discrepancy on client initialization
+try {
+  if (typeof localStorage !== 'undefined' && localStorage.getItem('azhagi_repair_tally_v5') !== 'true') {
+    repairAndRestoreCustomerBillTallies();
+    localStorage.setItem('azhagi_repair_tally_v5', 'true');
+  }
+} catch {
+  // Ignored if localstorage restricted
+}
+
 // ─── Cache Trimming & Space Maintenance ──────────────────────────────────────
 /**
  * Trims old data from localStorage to keep storage footprint manageable:
@@ -514,25 +613,12 @@ export function recalculateLocalBill(billId: string): MonthlyBill {
     payments.reduce((sum, p) => sum + (p.amount || 0), 0).toFixed(2)
   );
 
-  let paidAmount = directPaid;
-
-  // 2. Check if customer has an advance wallet balance to apply (if bill has a balance)
-  const customers = getLocalCustomers(true);
-  const custIdx = customers.findIndex((c) => c.id === bill.customer_id);
-  if (custIdx >= 0 && (customers[custIdx].advance_balance || 0) > 0 && totalAmount > paidAmount) {
-    const advanceAvailable = customers[custIdx].advance_balance || 0;
-    const needed = parseFloat((totalAmount - paidAmount).toFixed(2));
-    const toUse = parseFloat(Math.min(advanceAvailable, needed).toFixed(2));
-    paidAmount = parseFloat((paidAmount + toUse).toFixed(2));
-    customers[custIdx].advance_balance = parseFloat((advanceAvailable - toUse).toFixed(2));
-    setJson(STORAGE_KEYS.CUSTOMERS, customers);
-  }
-
+  const paidAmount = directPaid;
   const balance = parseFloat(Math.max(0, totalAmount - paidAmount).toFixed(2));
   const status: MonthlyBill['status'] =
     totalAmount === 0 && paidAmount === 0
       ? 'pending'
-      : balance <= 0 && totalAmount > 0
+      : balance <= 0 && (totalAmount > 0 || paidAmount > 0)
       ? 'paid'
       : paidAmount > 0
       ? 'partial'
@@ -587,47 +673,18 @@ export function addLocalPayment(data: {
   payments.push(newPayment);
   setJson(STORAGE_KEYS.PAYMENTS, payments);
 
-  const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
-  const targetBill = bills.find((b) => b.id === data.bill_id);
-  let rem = data.amount;
+  // Recalculate target bill based strictly on its direct payments
+  const updatedBill = recalculateLocalBill(data.bill_id);
 
-  if (targetBill) {
-    const targetMonthVal = targetBill.billing_year * 12 + targetBill.billing_month;
-    // 1. Clear oldest unpaid previous month bills first
-    const prevBills = bills
-      .filter((b) => b.customer_id === data.customer_id && (b.billing_year * 12 + b.billing_month) < targetMonthVal && b.balance_amount > 0)
-      .sort((a, b) => (a.billing_year * 12 + a.billing_month) - (b.billing_year * 12 + b.billing_month));
-
-    for (const pb of prevBills) {
-      if (rem <= 0) break;
-      const toPay = parseFloat(Math.min(rem, pb.balance_amount).toFixed(2));
-      pb.paid_amount = parseFloat((pb.paid_amount + toPay).toFixed(2));
-      pb.balance_amount = parseFloat(Math.max(0, pb.total_amount - pb.paid_amount).toFixed(2));
-      pb.status = pb.balance_amount <= 0 && pb.total_amount > 0 ? 'paid' : pb.paid_amount > 0 ? 'partial' : 'pending';
-      pb.updated_at = now;
-      rem = parseFloat((rem - toPay).toFixed(2));
-    }
-
-    // 2. Pay current target bill
-    if (rem > 0) {
-      const toTarget = parseFloat(Math.min(rem, targetBill.balance_amount).toFixed(2));
-      targetBill.paid_amount = parseFloat((targetBill.paid_amount + toTarget).toFixed(2));
-      targetBill.balance_amount = parseFloat(Math.max(0, targetBill.total_amount - targetBill.paid_amount).toFixed(2));
-      targetBill.status = targetBill.balance_amount <= 0 && targetBill.total_amount > 0 ? 'paid' : targetBill.paid_amount > 0 ? 'partial' : 'pending';
-      targetBill.updated_at = now;
-      rem = parseFloat((rem - toTarget).toFixed(2));
-    }
-    setJson(STORAGE_KEYS.BILLS, bills);
-  }
-
-  // 3. Any excess advance amount is stored in customer.advance_balance
-  if (rem > 0) {
-    const customers = getLocalCustomers(true);
-    const cIdx = customers.findIndex((c) => c.id === data.customer_id);
-    if (cIdx >= 0) {
-      customers[cIdx].advance_balance = parseFloat(((customers[cIdx].advance_balance || 0) + rem).toFixed(2));
-      setJson(STORAGE_KEYS.CUSTOMERS, customers);
-    }
+  // Track genuine surplus advance only if total payments for this bill exceed its total amount
+  const billPayments = getLocalPaymentsForBill(data.bill_id);
+  const totalPaid = billPayments.reduce((s, p) => s + (p.amount || 0), 0);
+  const surplus = totalPaid > updatedBill.total_amount ? parseFloat((totalPaid - updatedBill.total_amount).toFixed(2)) : 0;
+  const customers = getLocalCustomers(true);
+  const cIdx = customers.findIndex((c) => c.id === data.customer_id);
+  if (cIdx >= 0) {
+    customers[cIdx].advance_balance = surplus;
+    setJson(STORAGE_KEYS.CUSTOMERS, customers);
   }
 
   return newPayment;

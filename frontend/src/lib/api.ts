@@ -443,38 +443,15 @@ export async function recalculateBill(billId: string): Promise<MonthlyBill> {
           .select("amount")
           .eq("bill_id", billId);
 
-        let paidAmount = parseFloat(
+        const paidAmount = parseFloat(
           (payList || []).reduce((s: number, p: any) => s + (p.amount || 0), 0).toFixed(2)
         );
-
-        // Apply advance balance if customer has genuine advance
-        try {
-          const { data: cust } = await supabase
-            .from("customers")
-            .select("advance_balance")
-            .eq("id", bill.customer_id)
-            .maybeSingle();
-
-          if (cust && (cust.advance_balance || 0) > 0 && totalAmount > paidAmount) {
-            const adv = cust.advance_balance || 0;
-            const needed = parseFloat((totalAmount - paidAmount).toFixed(2));
-            const toUse = parseFloat(Math.min(adv, needed).toFixed(2));
-            paidAmount = parseFloat((paidAmount + toUse).toFixed(2));
-            const remainingAdv = parseFloat((adv - toUse).toFixed(2));
-            await supabase
-              .from("customers")
-              .update({ advance_balance: remainingAdv })
-              .eq("id", bill.customer_id);
-          }
-        } catch {
-          // Ignored if column doesn't exist
-        }
 
         const balance = parseFloat(Math.max(0, totalAmount - paidAmount).toFixed(2));
         const status: MonthlyBill["status"] =
           totalAmount === 0 && paidAmount === 0
             ? "pending"
-            : balance <= 0 && totalAmount > 0
+            : balance <= 0 && (totalAmount > 0 || paidAmount > 0)
             ? "paid"
             : paidAmount > 0
             ? "partial"
@@ -503,6 +480,100 @@ export async function recalculateBill(billId: string): Promise<MonthlyBill> {
     }
   }
   return local.recalculateLocalBill(billId);
+}
+
+/**
+ * Fully undoes past rebalance miscalculations and restores all customer account tallies
+ * to their mathematically true, uncorrupted state:
+ * - Recalculates every bill's paid_amount strictly from actual payments made for that bill.
+ * - Recalculates balance_amount = total_amount - paid_amount.
+ * - Restores true status ('paid' | 'partial' | 'pending').
+ * - Cleans up corrupted/inflated advance_balance on customers in both LocalStorage & Supabase.
+ */
+export async function repairAndRestoreAllBillTallies(): Promise<void> {
+  // 1. Repair local store immediately
+  local.repairAndRestoreCustomerBillTallies();
+
+  // 2. Repair Supabase if online and configured
+  if (isSupabaseConfigured() && navigator.onLine) {
+    try {
+      const { data: allBills } = await supabase.from("monthly_bills").select("*");
+      const { data: allPayments } = await supabase.from("payments").select("*");
+      const { data: allCustomers } = await supabase.from("customers").select("id, advance_balance");
+
+      if (allBills && allPayments) {
+        // Map direct payments by bill_id
+        const paymentsByBill = new Map<string, number>();
+        for (const p of allPayments) {
+          if (p.bill_id) {
+            const cur = paymentsByBill.get(p.bill_id) || 0;
+            paymentsByBill.set(p.bill_id, parseFloat((cur + (p.amount || 0)).toFixed(2)));
+          }
+        }
+
+        const advanceByCustomer = new Map<string, number>();
+        const billIds = new Set(allBills.map((b) => b.id));
+
+        for (const b of allBills) {
+          const directPaid = paymentsByBill.get(b.id) || 0;
+          const totalAmount = parseFloat((b.total_amount || 0).toFixed(2));
+          const balance = parseFloat(Math.max(0, totalAmount - directPaid).toFixed(2));
+          const status: MonthlyBill["status"] =
+            totalAmount === 0 && directPaid === 0
+              ? "pending"
+              : balance <= 0 && (totalAmount > 0 || directPaid > 0)
+              ? "paid"
+              : directPaid > 0
+              ? "partial"
+              : "pending";
+
+          if (directPaid > totalAmount) {
+            const excess = parseFloat((directPaid - totalAmount).toFixed(2));
+            const curAdv = advanceByCustomer.get(b.customer_id) || 0;
+            advanceByCustomer.set(b.customer_id, parseFloat((curAdv + excess).toFixed(2)));
+          }
+
+          if (b.paid_amount !== directPaid || b.balance_amount !== balance || b.status !== status) {
+            await supabase
+              .from("monthly_bills")
+              .update({
+                paid_amount: directPaid,
+                balance_amount: balance,
+                status,
+              })
+              .eq("id", b.id);
+          }
+        }
+
+        // Check for any unlinked payments to preserve as customer advance
+        for (const p of allPayments) {
+          if (p.customer_id && (!p.bill_id || !billIds.has(p.bill_id))) {
+            const curAdv = advanceByCustomer.get(p.customer_id) || 0;
+            advanceByCustomer.set(p.customer_id, parseFloat((curAdv + (p.amount || 0)).toFixed(2)));
+          }
+        }
+
+        // Reset customers advance_balance in Supabase
+        if (allCustomers) {
+          for (const c of allCustomers) {
+            const realAdv = advanceByCustomer.get(c.id) || 0;
+            if ((c.advance_balance || 0) !== realAdv) {
+              try {
+                await supabase
+                  .from("customers")
+                  .update({ advance_balance: realAdv })
+                  .eq("id", c.id);
+              } catch {
+                // Column might not exist
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[Supabase] repairAndRestoreAllBillTallies sync failed:", e);
+    }
+  }
 }
 
 export async function finalizeBill(billId: string): Promise<MonthlyBill> {

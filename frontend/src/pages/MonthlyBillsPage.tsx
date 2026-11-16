@@ -13,6 +13,7 @@ import {
   AlertCircle,
   RefreshCw,
   IndianRupee,
+  ShieldCheck,
   Edit2,
   Trash2,
   Check,
@@ -30,6 +31,7 @@ import {
   deletePayment,
   updatePayment,
   getAllOutstandingBalance,
+  repairAndRestoreAllBillTallies,
 } from '../lib/api';
 import { useAppStore } from '../store/appStore';
 import type { MonthlyBill, Customer, Payment } from '../types';
@@ -100,9 +102,21 @@ export default function MonthlyBillsPage() {
   const defaultRate = settings?.default_rate || 60;
   const monthName = format(new Date(year, month - 1), 'MMMM yyyy');
 
+  const [repairing, setRepairing] = useState(false);
+
   const loadBills = async () => {
     setLoading(true);
     try {
+      // Auto-repair tallies on initial launch to undo past calculation discrepancies
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('azhagi_repair_tally_v5') !== 'true') {
+        try {
+          await repairAndRestoreAllBillTallies();
+          localStorage.setItem('azhagi_repair_tally_v5', 'true');
+        } catch (e) {
+          console.warn('Auto-repair warning:', e);
+        }
+      }
+
       const [data, outstanding] = await Promise.all([
         getMonthlyBills(year, month),
         getAllOutstandingBalance(),
@@ -144,9 +158,26 @@ export default function MonthlyBillsPage() {
     loadBills();
   });
 
+  const handleRepairTallies = async () => {
+    setRepairing(true);
+    try {
+      await repairAndRestoreAllBillTallies();
+      await loadBills();
+      toast.success('✓ Restored all customer tallies to exact mathematical state!');
+    } catch (err: any) {
+      toast.error('Error repairing tallies: ' + err.message);
+    } finally {
+      setRepairing(false);
+    }
+  };
+
   const handleGenerate = async () => {
     setGenerating(true);
     try {
+      // 1. Audit and restore tallies first to ensure zero lingering discrepancies
+      await repairAndRestoreAllBillTallies();
+
+      // 2. Generate/recalculate current month bills strictly from deliveries and direct payments
       const activeCustomers = customers.filter((c) => c.active);
       for (const c of activeCustomers) {
         const rate = c.custom_rate || defaultRate;
@@ -154,7 +185,7 @@ export default function MonthlyBillsPage() {
         if (!b.is_finalized) await recalculateBill(b.id);
       }
       await loadBills();
-      toast.success(`✓ Generated bills for ${monthName}`);
+      toast.success(`✓ Generated & audited bills for ${monthName}`);
     } catch (err: any) {
       toast.error('Error generating bills: ' + err.message);
     } finally {
@@ -345,15 +376,27 @@ export default function MonthlyBillsPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleGenerate}
-          disabled={generating}
-          className="inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold disabled:opacity-60 shadow-xs transition-colors shrink-0 active:scale-95"
-        >
-          <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
-          <span>{generating ? 'Generating Calculations...' : '⚡ Generate / Update Bills'}</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleRepairTallies}
+            disabled={repairing || generating}
+            className="inline-flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold disabled:opacity-60 shadow-xs transition-colors shrink-0 active:scale-95"
+            title="Restore all customer accounts and undo previous calculation discrepancies"
+          >
+            <ShieldCheck size={16} className={repairing ? 'animate-spin' : ''} />
+            <span>{repairing ? 'Auditing...' : '🛡️ Fix & Restore Tallies'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={generating || repairing}
+            className="inline-flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold disabled:opacity-60 shadow-xs transition-colors shrink-0 active:scale-95"
+          >
+            <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
+            <span>{generating ? 'Generating Calculations...' : '⚡ Generate / Update Bills'}</span>
+          </button>
+        </div>
       </div>
 
       {/* View Selector Tabs: Customer Bills vs Overall Statement */}
