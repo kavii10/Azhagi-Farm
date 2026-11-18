@@ -156,15 +156,36 @@ DROP TRIGGER IF EXISTS trg_cattle_yields_updated ON cattle_yields;
 CREATE TRIGGER trg_cattle_yields_updated BEFORE UPDATE ON cattle_yields FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
--- 5. NO-LOGIN PUBLIC ACCESS (Disable RLS for single-farm access)
+-- 5. ROW LEVEL SECURITY (RLS) & ACCESS POLICIES
 -- ============================================================
-ALTER TABLE IF EXISTS app_settings DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS customers DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS milk_entries DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS monthly_bills DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS payments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS cattle DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS cattle_yields DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS app_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS customers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS milk_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS monthly_bills ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS cattle ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS cattle_yields ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on app_settings" ON app_settings;
+CREATE POLICY "Allow anon and auth full access on app_settings" ON app_settings FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on customers" ON customers;
+CREATE POLICY "Allow anon and auth full access on customers" ON customers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on milk_entries" ON milk_entries;
+CREATE POLICY "Allow anon and auth full access on milk_entries" ON milk_entries FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on monthly_bills" ON monthly_bills;
+CREATE POLICY "Allow anon and auth full access on monthly_bills" ON monthly_bills FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on payments" ON payments;
+CREATE POLICY "Allow anon and auth full access on payments" ON payments FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on cattle" ON cattle;
+CREATE POLICY "Allow anon and auth full access on cattle" ON cattle FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow anon and auth full access on cattle_yields" ON cattle_yields;
+CREATE POLICY "Allow anon and auth full access on cattle_yields" ON cattle_yields FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- 6. ENABLE REALTIME BROADCAST (Live cross-device sync)
