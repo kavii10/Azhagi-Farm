@@ -26,6 +26,7 @@ import {
   getOrCreateMonthlyBill,
   recalculateBill,
   getMilkEntriesForCustomer,
+  getCustomers,
   addPayment,
   getPaymentsForBill,
   deletePayment,
@@ -174,20 +175,43 @@ export default function MonthlyBillsPage() {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      // 1. Audit and restore tallies first to ensure zero lingering discrepancies
-      await repairAndRestoreAllBillTallies();
-
-      // 2. Generate/recalculate current month bills strictly from deliveries and direct payments
-      const activeCustomers = customers.filter((c) => c.active);
-      for (const c of activeCustomers) {
-        const rate = c.custom_rate || defaultRate;
-        const b = await getOrCreateMonthlyBill(c.id, year, month, rate);
-        if (!b.is_finalized) await recalculateBill(b.id);
+      // 1. Audit and restore tallies non-blockingly
+      try {
+        await repairAndRestoreAllBillTallies();
+      } catch (rErr) {
+        console.warn('repairAndRestoreAllBillTallies warning:', rErr);
       }
+
+      // 2. Fetch active customers (fallback to API if store not hydrated)
+      let custList = customers;
+      if (!custList || custList.length === 0) {
+        custList = await getCustomers(true);
+      }
+      const activeCustomers = (custList || []).filter((c) => c.active);
+
+      if (activeCustomers.length === 0) {
+        toast.error('No active customers found to generate bills for.');
+        return;
+      }
+
+      let generatedCount = 0;
+      for (const c of activeCustomers) {
+        try {
+          const rate = c.custom_rate || defaultRate;
+          const b = await getOrCreateMonthlyBill(c.id, year, month, rate);
+          if (b && !b.is_finalized) {
+            await recalculateBill(b.id);
+          }
+          generatedCount++;
+        } catch (cErr: any) {
+          console.warn(`Error generating bill for customer ${c.name || c.id}:`, cErr);
+        }
+      }
+
       await loadBills();
-      toast.success(`✓ Generated & audited bills for ${monthName}`);
+      toast.success(`✓ Generated & audited ${generatedCount} bills for ${monthName}`);
     } catch (err: any) {
-      toast.error('Error generating bills: ' + err.message);
+      toast.error('Error generating bills: ' + (err?.message || 'Error occurred'));
     } finally {
       setGenerating(false);
     }

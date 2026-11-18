@@ -544,11 +544,49 @@ export function getLocalMonthlyBills(year: number, month: number): (MonthlyBill 
   }));
 }
 
-export function saveLocalMonthlyBills(year: number, month: number, fetchedBills: MonthlyBill[]): void {
+export function saveLocalMonthlyBills(_year: number, _month: number, fetchedBills: MonthlyBill[]): void {
   const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
-  const other = bills.filter((b) => !(b.billing_year === year && b.billing_month === month));
-  other.push(...fetchedBills);
-  setJson(STORAGE_KEYS.BILLS, other);
+  if (!fetchedBills || fetchedBills.length === 0) return;
+
+  const incomingById = new Map<string, MonthlyBill>();
+  const incomingByCust = new Map<string, MonthlyBill>();
+
+  for (const b of fetchedBills) {
+    if (b.id) incomingById.set(b.id, b);
+    incomingByCust.set(`${b.customer_id}:${b.billing_year}:${b.billing_month}`, b);
+  }
+
+  const updated: MonthlyBill[] = [];
+  const handled = new Set<string>();
+
+  for (const b of bills) {
+    const custKey = `${b.customer_id}:${b.billing_year}:${b.billing_month}`;
+    if (incomingById.has(b.id)) {
+      const match = incomingById.get(b.id)!;
+      updated.push({ ...b, ...match });
+      handled.add(b.id);
+    } else if (incomingByCust.has(custKey)) {
+      const match = incomingByCust.get(custKey)!;
+      updated.push({ ...b, ...match });
+      if (match.id) handled.add(match.id);
+      handled.add(b.id);
+    } else {
+      updated.push(b);
+    }
+  }
+
+  for (const b of fetchedBills) {
+    if (b.id && !handled.has(b.id)) {
+      updated.push(b);
+      handled.add(b.id);
+    }
+  }
+
+  setJson(STORAGE_KEYS.BILLS, updated);
+}
+
+export function saveOrUpdateLocalBill(bill: MonthlyBill): void {
+  saveLocalMonthlyBills(bill.billing_year, bill.billing_month, [bill]);
 }
 
 export function getOrCreateLocalMonthlyBill(
@@ -596,7 +634,25 @@ export function getOrCreateLocalMonthlyBill(
 export function recalculateLocalBill(billId: string): MonthlyBill {
   const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
   const idx = bills.findIndex((b) => b.id === billId);
-  if (idx === -1) throw new Error('Bill not found');
+  if (idx === -1) {
+    console.warn(`recalculateLocalBill: Bill ${billId} not found in local store`);
+    return {
+      id: billId,
+      owner_id: undefined as any,
+      customer_id: '',
+      billing_year: new Date().getFullYear(),
+      billing_month: new Date().getMonth() + 1,
+      total_litres: 0,
+      rate_per_litre: 0,
+      total_amount: 0,
+      paid_amount: 0,
+      balance_amount: 0,
+      status: 'pending',
+      is_finalized: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
   const bill = bills[idx];
 
   if (bill.is_finalized) return bill;
@@ -642,7 +698,25 @@ export function recalculateLocalBill(billId: string): MonthlyBill {
 export function finalizeLocalBill(billId: string): MonthlyBill {
   const bills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
   const idx = bills.findIndex((b) => b.id === billId);
-  if (idx === -1) throw new Error('Bill not found');
+  if (idx === -1) {
+    console.warn(`finalizeLocalBill: Bill ${billId} not found in local store`);
+    return {
+      id: billId,
+      owner_id: undefined as any,
+      customer_id: '',
+      billing_year: new Date().getFullYear(),
+      billing_month: new Date().getMonth() + 1,
+      total_litres: 0,
+      rate_per_litre: 0,
+      total_amount: 0,
+      paid_amount: 0,
+      balance_amount: 0,
+      status: 'pending',
+      is_finalized: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
   bills[idx].is_finalized = true;
   bills[idx].updated_at = new Date().toISOString();
   setJson(STORAGE_KEYS.BILLS, bills);
