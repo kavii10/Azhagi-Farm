@@ -95,7 +95,7 @@ export default function OverallBillStatementPage() {
   };
 
   // Download PDF handler
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (statementData.rows.length === 0) {
       toast.error('No bill records found for this month.');
       return;
@@ -103,8 +103,8 @@ export default function OverallBillStatementPage() {
 
     setPdfGenerating(true);
     try {
-      downloadOverallStatementPdf(statementData);
-      toast.success(`✓ Downloaded ${statementData.monthName} Statement PDF`);
+      const res = await downloadOverallStatementPdf(statementData);
+      toast.success(`✓ Saved to ${res?.folder || 'Downloads'}: ${res?.fileName || 'Overall_Statement.pdf'}`, { duration: 4000 });
     } catch (err: any) {
       toast.error('Failed to generate PDF: ' + err.message);
     } finally {

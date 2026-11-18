@@ -578,6 +578,32 @@ export function printCustomerBill(data: BillPdfData) {
 }
 
 /**
+ * Normalizes phone numbers for WhatsApp:
+ * - 10 digits (e.g. 9876543210) -> prepends country code 91: '919876543210'
+ * - 11 digits starting with 0 (e.g. 09876543210) -> strips 0 and prepends 91: '919876543210'
+ * - 12 digits starting with 91 (e.g. 919876543210) -> returns as is without doubling
+ * - International / other format -> returns digits as is
+ */
+export function formatWhatsAppPhone(phone?: string | null): string {
+  if (!phone) return '';
+  let digits = phone.replace(/[^0-9]/g, '');
+  if (!digits) return '';
+  // Strip leading zeros if present
+  if (digits.startsWith('0')) {
+    digits = digits.replace(/^0+/, '');
+  }
+  // 10-digit Indian mobile number
+  if (digits.length === 10) {
+    return `91${digits}`;
+  }
+  // 12-digit number with 91 prefix
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return digits;
+  }
+  return digits;
+}
+
+/**
  * Generates the customer's PDF bill and shares it directly to WhatsApp
  * with the prefilled bill details and the PDF file attached.
  */
@@ -610,7 +636,7 @@ export async function shareBillViaWhatsApp(data: BillPdfData): Promise<void> {
     `----------------------------\n` +
     `📄 *Detailed PDF bill attached.* Thank you! 🙏`;
 
-  const phone = customer.phone ? customer.phone.replace(/[^0-9]/g, '') : '';
+  const cleanPhone = formatWhatsAppPhone(customer.phone);
   const isCapacitorNative =
     typeof (window as any).Capacitor !== 'undefined' &&
     typeof (window as any).Capacitor.isNativePlatform === 'function' &&
@@ -634,7 +660,7 @@ export async function shareBillViaWhatsApp(data: BillPdfData): Promise<void> {
       try {
         const res = await WhatsAppShare.sharePdf({
           filePath: savedFile.uri,
-          phone: phone || undefined,
+          phone: cleanPhone || undefined,
           text: captionText,
         });
         if (res && res.success) {
@@ -683,6 +709,6 @@ export async function shareBillViaWhatsApp(data: BillPdfData): Promise<void> {
   }
 
   const encoded = encodeURIComponent(captionText);
-  const waUrl = phone ? `https://wa.me/91${phone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+  const waUrl = cleanPhone ? `https://wa.me/${cleanPhone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
   window.open(waUrl, '_blank');
 }

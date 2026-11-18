@@ -1122,7 +1122,7 @@ export default function MonthlyBillsPage() {
                             <>
                               <div className="flex flex-col">
                                 <span className="text-gray-600 dark:text-gray-300 text-[11px] font-medium">
-                                  {format(new Date(p.payment_date), 'MMM d, yyyy')}
+                                  {format(new Date(p.payment_date + 'T00:00:00'), 'MMM d, yyyy')}
                                 </span>
                                 {p.notes && <span className="text-[10px] text-gray-400">{p.notes}</span>}
                               </div>

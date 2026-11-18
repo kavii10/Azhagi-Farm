@@ -748,18 +748,10 @@ export function addLocalPayment(data: {
   setJson(STORAGE_KEYS.PAYMENTS, payments);
 
   // Recalculate target bill based strictly on its direct payments
-  const updatedBill = recalculateLocalBill(data.bill_id);
+  recalculateLocalBill(data.bill_id);
 
-  // Track genuine surplus advance only if total payments for this bill exceed its total amount
-  const billPayments = getLocalPaymentsForBill(data.bill_id);
-  const totalPaid = billPayments.reduce((s, p) => s + (p.amount || 0), 0);
-  const surplus = totalPaid > updatedBill.total_amount ? parseFloat((totalPaid - updatedBill.total_amount).toFixed(2)) : 0;
-  const customers = getLocalCustomers(true);
-  const cIdx = customers.findIndex((c) => c.id === data.customer_id);
-  if (cIdx >= 0) {
-    customers[cIdx].advance_balance = surplus;
-    setJson(STORAGE_KEYS.CUSTOMERS, customers);
-  }
+  // Recompute advance wallet across ALL bills for this customer
+  recalculateCustomerAdvance(data.customer_id);
 
   return newPayment;
 }
@@ -767,6 +759,52 @@ export function addLocalPayment(data: {
 export function getLocalPaymentsForBill(billId: string): Payment[] {
   const list = getJson<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
   return list.filter((p) => p.bill_id === billId).sort((a, b) => a.payment_date.localeCompare(b.payment_date));
+}
+
+/**
+ * Recomputes advance_balance for a customer across ALL their bills and unlinked payments.
+ * Call after any payment add/update/delete to keep advance wallet in sync.
+ */
+function recalculateCustomerAdvance(customerId: string): void {
+  try {
+    const allBills = getJson<MonthlyBill[]>(STORAGE_KEYS.BILLS, []);
+    const customerBills = allBills.filter((b) => b.customer_id === customerId);
+    const allPayments = getJson<Payment[]>(STORAGE_KEYS.PAYMENTS, []);
+    const billIds = new Set(customerBills.map((b) => b.id));
+
+    // Sum payments per bill
+    const paymentsByBill = new Map<string, number>();
+    for (const p of allPayments) {
+      if (p.bill_id && p.customer_id === customerId) {
+        const cur = paymentsByBill.get(p.bill_id) || 0;
+        paymentsByBill.set(p.bill_id, parseFloat((cur + (p.amount || 0)).toFixed(2)));
+      }
+    }
+
+    // Surplus from bills where paid > billed
+    let totalSurplus = 0;
+    for (const b of customerBills) {
+      const paid = paymentsByBill.get(b.id) || 0;
+      if (paid > b.total_amount) {
+        totalSurplus += paid - b.total_amount;
+      }
+    }
+    // Orphaned payments (no bill or unknown bill)
+    for (const p of allPayments) {
+      if (p.customer_id === customerId && (!p.bill_id || !billIds.has(p.bill_id))) {
+        totalSurplus += p.amount || 0;
+      }
+    }
+
+    const customers = getLocalCustomers(true);
+    const cIdx = customers.findIndex((c) => c.id === customerId);
+    if (cIdx >= 0) {
+      customers[cIdx].advance_balance = parseFloat(totalSurplus.toFixed(2));
+      setJson(STORAGE_KEYS.CUSTOMERS, customers);
+    }
+  } catch (err) {
+    console.warn('recalculateCustomerAdvance error:', err);
+  }
 }
 
 export function deleteLocalPayment(paymentId: string): void {
@@ -779,6 +817,10 @@ export function deleteLocalPayment(paymentId: string): void {
 
   // Recalculate target bill based strictly on remaining direct payments
   recalculateLocalBill(target.bill_id);
+  // Recalculate customer's advance wallet after payment removed
+  if (target.customer_id) {
+    recalculateCustomerAdvance(target.customer_id);
+  }
 }
 
 export function updateLocalPayment(
@@ -790,11 +832,16 @@ export function updateLocalPayment(
   if (idx < 0) return;
 
   const targetBillId = payments[idx].bill_id;
+  const customerId = payments[idx].customer_id;
   payments[idx] = { ...payments[idx], ...updates };
   setJson(STORAGE_KEYS.PAYMENTS, payments);
 
   // Recalculate target bill based strictly on updated direct payments
   recalculateLocalBill(targetBillId);
+  // Recalculate customer's advance wallet after payment changed
+  if (customerId) {
+    recalculateCustomerAdvance(customerId);
+  }
 }
 
 /**

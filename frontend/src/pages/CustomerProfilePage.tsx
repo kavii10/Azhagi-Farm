@@ -685,7 +685,7 @@ export default function CustomerProfilePage() {
                   {payments.map((p) => (
                     <div key={p.id} className="flex items-center justify-between text-sm py-2 px-3 rounded-xl bg-gray-50 border border-gray-100">
                       <div className="flex flex-col">
-                        <span className="text-xs font-semibold text-gray-700">{format(new Date(p.payment_date), 'MMM d, yyyy')}</span>
+                        <span className="text-xs font-semibold text-gray-700">{format(new Date(p.payment_date + 'T00:00:00'), 'MMM d, yyyy')}</span>
                         {p.notes && <span className="text-[11px] text-gray-400">{p.notes}</span>}
                       </div>
                       <div className="flex items-center gap-2">
@@ -1011,7 +1011,7 @@ export default function CustomerProfilePage() {
             <p className="text-sm text-gray-600 mb-4">
               Are you sure you want to delete this payment of{' '}
               <strong className="text-gray-900">₹{deletingPayment.amount}</strong> recorded on{' '}
-              {format(new Date(deletingPayment.payment_date), 'MMM d, yyyy')}? The bill balance will be automatically adjusted.
+              {format(new Date(deletingPayment.payment_date + 'T00:00:00'), 'MMM d, yyyy')}? The bill balance will be automatically adjusted.
             </p>
             <div className="flex gap-2">
               <button
